@@ -108,17 +108,17 @@ with aba2:
             df_base['ACUMULADO'] = df_base[meses_exibir].sum(axis=1)
             df_base['MÉDIA'] = df_base[meses_exibir].mean(axis=1)
 
-            # --- NOVA ESTILIZAÇÃO ---
+            # --- ESTILIZAÇÃO FINAL ---
             def style_rows(row):
-                # Nível 1: Grafite Profundo (Contraste alto com vermelho/verde)
+                # Nível 1: Grafite Profundo (Excelente contraste para leitura de totais)
                 if row['Nivel'] == 1: 
                     return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
-                # Nível 2: Cinza Médio (Foco na separação de grupos)
+                # Nível 2: Cinza Claro (Divisor de categorias)
                 if row['Nivel'] == 2: 
-                    return ['background-color: #e2e8f0; font-weight: bold; color: black'] * len(row)
-                # Nível 3: Azul Suave (Hierarquia de subgrupos)
+                    return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
+                # Nível 3: Azul Clarinho (O seu preferido, facilita a leitura dos subgrupos)
                 if row['Nivel'] == 3: 
-                    return ['background-color: #f1f5f9; font-weight: bold; color: #1e293b'] * len(row)
+                    return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
 
             cols = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
