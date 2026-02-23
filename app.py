@@ -32,53 +32,24 @@ with aba1:
     with col2:
         ano = st.selectbox("Ano", [2025, 2026, 2027])
 
-    arquivo = st.file_uploader("Arraste o Excel de Janeiro aqui", type=["xlsx"])
+    arquivo = st.file_uploader("Arraste o Excel aqui", type=["xlsx"])
     
     if arquivo and st.button("🚀 Processar e Salvar"):
-        df = pd.read_excel(arquivo)
-        # Regra de sinal: P vira negativo
-        df['Valor Ajustado'] = df.apply(lambda x: x['Valor Baixado'] * -1 if x['Pag/Rec'] == 'P' else x['Valor Baixado'], axis=1)
-        
-        nome_aba = f"{mes}_{ano}"
-        try:
-            worksheet = spreadsheet.worksheet(nome_aba)
-            worksheet.clear()
-        except:
-            worksheet = spreadsheet.add_worksheet(title=nome_aba, rows="1000", cols="25")
-        
-        # Salva os dados processados
-        df_save = df.astype(str)
-        worksheet.update([df_save.columns.values.tolist()] + df_save.values.tolist())
-        st.success(f"Dados de {nome_aba} salvos no Google Sheets!")
-
-with aba2:
-    st.subheader("Demonstrativo de Resultado (DRE)")
-    if st.button("🔄 Gerar Relatório do Mês"):
-        # Lendo a Base e os Dados do Mês
-        base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
-        try:
-            mensal = pd.DataFrame(spreadsheet.worksheet(f"{mes}_{ano}").get_all_records())
-            mensal['Valor Ajustado'] = pd.to_numeric(mensal['Valor Ajustado'])
+        with st.spinner("Lendo arquivo..."):
+            df = pd.read_excel(arquivo)
             
-            # Soma valores por conta (C. Resultado)
-            resumo_mes = mensal.groupby('C. Resultado')['Valor Ajustado'].sum().to_dict()
+            # Limpeza: Pega apenas o código numérico da conta (ex: 01.01.001)
+            df['C. Resultado Limpo'] = df['C. Resultado'].astype(str).str.split(' ').str[0]
             
-            # Atribui valores ao Nível 4
-            base['Valor'] = base['Conta'].map(resumo_mes).fillna(0)
+            # Converte valores para número
+            df['Valor Baixado'] = pd.to_numeric(df['Valor Baixado'], errors='coerce').fillna(0)
             
-            # Lógica de Soma dos Níveis (Cascata)
-            # Organiza do nível mais profundo para o mais alto
-            for n in [3, 2, 1]:
-                indices_pai = base[base['Nivel'] == n].index
-                for idx in indices_pai:
-                    conta_pai = base.at[idx, 'Conta']
-                    # Soma todos que começam com o código do pai
-                    filhos = base[base['Conta'].str.startswith(str(conta_pai) + ".")]
-                    base.at[idx, 'Valor'] = filhos['Valor'].sum()
+            # Regra de sinal: P = Negativo
+            df['Valor Ajustado'] = df.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).upper() == 'P' else x['Valor Baixado'], axis=1)
             
-            # Formatação para exibição
-            base['Valor'] = base['Valor'].apply(lambda x: f"R$ {x:,.2f}")
-            st.table(base[['Nivel', 'Conta', 'Descrição ', 'Valor']])
-            
-        except:
-            st.warning(f"Aba {mes}_{ano} não encontrada. Faça o upload na Aba 1 primeiro.")
+            nome_aba = f"{mes}_{ano}"
+            try:
+                worksheet = spreadsheet.worksheet(nome_aba)
+                worksheet.clear()
+            except:
+                worksheet = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="30")
