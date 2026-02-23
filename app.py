@@ -74,7 +74,9 @@ with aba2:
             df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
             df_base.columns = [str(c).strip() for c in df_base.columns]
             df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
-            df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1)
+            
+            # Forçar Conta a ser String para não perder o "0" (ex: 01)
+            df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
 
             abas = [w.title for w in spreadsheet.worksheets() if f"_{ano_sel}" in w.title]
             meses_exibir = [m for m in ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"] if f"{m}_{ano_sel}" in abas]
@@ -94,18 +96,18 @@ with aba2:
                 # PASSO 1: Nível 4 recebe os valores diretos
                 df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
 
-                # CORREÇÃO DA LÓGICA DE SOMA (DE BAIXO PARA CIMA)
-                # Passo 2 & 3: Soma Níveis 3 e 2 usando startswith robusto
-                for n em [3, 2]:
+                # CORREÇÃO DA LÓGICA DE SOMA (Hierarquia 4 -> 3 -> 2)
+                for n in [3, 2]:
                     for idx, row in df_base[df_base['Nivel'] == n].iterrows():
+                        # O segredo é que o filho deve começar com o código exato do pai + um ponto ou sequência
                         pref = str(row['Conta']).strip()
-                        # Soma tudo que começa com o prefixo e é de um nível inferior
-                        total = df_base[(df_base['Nivel'] > n) & (df_base['Conta'].str.startswith(pref))][m].sum()
+                        # Busca todos os níveis 4 (folhas) que pertencem a esta árvore
+                        total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][m].sum()
                         df_base.at[idx, m] = total
                 
-                # Passo 4: Nível 1 (Resultado Final) - Soma de todas as contas de Nível 2
-                # Aqui garantimos que Lucro = Receitas (positivo) + Despesas (negativo)
+                # Passo 4: Nível 1 (Resultado Final) - Soma de tudo que é Nível 2
                 for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
+                    # Resultado = Receitas + Despesas (considerando que despesas são negativas)
                     df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
 
             # Cálculos Finais
