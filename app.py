@@ -48,11 +48,8 @@ def limpar_conta_blindado(valor, nivel):
             return f"{partes[1].zfill(2)}.{partes[0].zfill(2)}.{p3}"
         elif nivel == 3:
             return f"{partes[1].zfill(2)}.{partes[0].zfill(2)}"
-    # Se lido como número (ex: 1.1), padroniza para texto com zeros
-    if '.' in v and nivel <= 3:
-        partes = v.split('.')
-        if nivel == 3: return f"{partes[0].zfill(2)}.{partes[1].zfill(2)}"
-        if nivel == 2: return partes[0].zfill(2)
+    # Padronização de zeros à esquerda para contas puramente numéricas
+    if nivel == 2 and len(v) == 1: return v.zfill(2)
     return v
 
 # --- ABA 1: CARGA ---
@@ -81,12 +78,12 @@ with aba2:
     ano_sel = st.sidebar.selectbox("Ano de Análise", [2026, 2025, 2027])
     
     if st.button("📊 Gerar Relatório de Níveis"):
-        with st.spinner("Somando Níveis 4 para o Nível 3..."):
+        with st.spinner("Calculando somatórios (Nível 3 -> Nível 2)..."):
             # 1. Carrega a Base
             df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
             df_base.columns = [str(c).strip() for c in df_base.columns]
             df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
-            # Limpeza crucial
+            # Limpeza crucial para evitar erros de data e falta de zeros
             df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1)
 
             # 2. Identifica meses
@@ -104,20 +101,23 @@ with aba2:
                 mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
                 
                 df_base[m] = 0.0
-                # Coloca valores nas contas de Nível 4
+                # PASSO 1: Coloca valores reais nas contas de Nível 4
                 mask_n4 = df_base['Nivel'] == 4
                 df_base.loc[mask_n4, m] = df_base.loc[mask_n4, 'Conta'].map(mapeamento).fillna(0)
 
-                # --- SOMATÓRIO DO NÍVEL 3 (O pedido do Jack) ---
+                # PASSO 2: SOMATÓRIO DO NÍVEL 3 (Soma os Níveis 4)
                 for idx, row in df_base[df_base['Nivel'] == 3].iterrows():
                     prefixo = str(row['Conta']) + "."
                     soma_n4 = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(prefixo))][m].sum()
                     df_base.at[idx, m] = soma_n4
                 
-                # Deixa Nível 2 e 1 como soma dos níveis 3 por enquanto para não ficar zerado
+                # PASSO 3: SOMATÓRIO DO NÍVEL 2 (Soma os Níveis 3)
                 for idx, row in df_base[df_base['Nivel'] == 2].iterrows():
                     prefixo = str(row['Conta']) + "."
-                    df_base.at[idx, m] = df_base[(df_base['Nivel'] == 3) & (df_base['Conta'].str.startswith(prefixo))][m].sum()
+                    soma_n3 = df_base[(df_base['Nivel'] == 3) & (df_base['Conta'].str.startswith(prefixo))][m].sum()
+                    df_base.at[idx, m] = soma_n3
+                
+                # PASSO 4: Nível 1 (Resultado Final) - Soma das Receitas e Despesas (que já são negativas)
                 for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
                     df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
 
@@ -137,8 +137,8 @@ with aba2:
                 return 'color: #D10000' if val < 0 else 'color: #008000' if val > 0 else 'color: #6b7280'
 
             def style_rows(row):
-                if row['Nivel'] == 1: return ['background-color: #1e40af; color: white; font-weight: bold'] * len(row)
-                if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold'] * len(row)
+                if row['Nivel'] == 1: return ['background-color: #1e40af; color: white; font-weight: bold'] * len(row) # Azul Escuro
+                if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row) # Cinza
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row) # Azul Claro
                 return [''] * len(row)
 
