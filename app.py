@@ -22,7 +22,7 @@ if not creds: st.stop()
 client = gspread.authorize(creds)
 spreadsheet = client.open_by_key("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 
-# --- FUNÇÃO DE LIMPEZA DE CONTA (Resolve o erro do 2001 do Google) ---
+# --- FUNÇÃO DE LIMPEZA DE CONTA ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
     if '/' in v or '-' in v: 
@@ -34,7 +34,7 @@ def limpar_conta_blindado(valor, nivel):
     if nivel == 2 and len(v) == 1: return v.zfill(2)
     return v
 
-# --- FORMATAÇÃO BRASILEIRA COM PARÊNTESES ---
+# --- FORMATAÇÃO BRASILEIRA ---
 def formatar_moeda_br(val):
     if not isinstance(val, (int, float)): return val
     valor_abs = abs(val)
@@ -69,7 +69,8 @@ with aba2:
     ano_sel = st.sidebar.selectbox("Ano de Análise", [2026, 2025, 2027])
     
     if st.button("📊 Gerar Relatório de Níveis"):
-        with st.spinner("Somando Níveis (4 -> 3 -> 2 -> 1)..."):
+        with st.spinner("Somando Níveis..."):
+            # Carregar Base de Estrutura
             df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
             df_base.columns = [str(c).strip() for c in df_base.columns]
             df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
@@ -85,29 +86,33 @@ with aba2:
             for m in meses_exibir:
                 df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano_sel}").get_all_records())
                 df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
-                mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
                 
+                # Agregação por ID de conta da carga
+                mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
                 df_base[m] = 0.0
-                # PASSO 1: Somente Nível 4 recebe dados
+                
+                # PASSO 1: Nível 4 recebe os valores diretos
                 df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
 
-                # PASSO 2: Soma Nível 3 (Pega os 4)
-                for idx, row in df_base[df_base['Nivel'] == 3].iterrows():
-                    pref = str(row['Conta']) + "."
-                    df_base.at[idx, m] = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][m].sum()
+                # CORREÇÃO DA LÓGICA DE SOMA (DE BAIXO PARA CIMA)
+                # Passo 2 & 3: Soma Níveis 3 e 2 usando startswith robusto
+                for n em [3, 2]:
+                    for idx, row in df_base[df_base['Nivel'] == n].iterrows():
+                        pref = str(row['Conta']).strip()
+                        # Soma tudo que começa com o prefixo e é de um nível inferior
+                        total = df_base[(df_base['Nivel'] > n) & (df_base['Conta'].str.startswith(pref))][m].sum()
+                        df_base.at[idx, m] = total
                 
-                # PASSO 3: Soma Nível 2 (Pega os 3)
-                for idx, row in df_base[df_base['Nivel'] == 2].iterrows():
-                    pref = str(row['Conta']) + "."
-                    df_base.at[idx, m] = df_base[(df_base['Nivel'] == 3) & (df_base['Conta'].str.startswith(pref))][m].sum()
-                
-                # PASSO 4: Soma Nível 1 (Pega os 2)
+                # Passo 4: Nível 1 (Resultado Final) - Soma de todas as contas de Nível 2
+                # Aqui garantimos que Lucro = Receitas (positivo) + Despesas (negativo)
                 for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
                     df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
 
+            # Cálculos Finais
             df_base['ACUMULADO'] = df_base[meses_exibir].sum(axis=1)
             df_base['MÉDIA'] = df_base[meses_exibir].mean(axis=1)
 
+            # Estilização
             def style_rows(row):
                 if row['Nivel'] == 1: return ['background-color: #1e40af; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
