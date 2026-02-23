@@ -79,7 +79,6 @@ with aba2:
             df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
             df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
 
-            # Ordem cronológica garantida
             ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
             abas_existentes = [w.title for w in spreadsheet.worksheets()]
             meses_exibir = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
@@ -109,18 +108,26 @@ with aba2:
             df_base['ACUMULADO'] = df_base[meses_exibir].sum(axis=1)
             df_base['MÉDIA'] = df_base[meses_exibir].mean(axis=1)
 
+            # --- NOVA ESTILIZAÇÃO ---
             def style_rows(row):
-                if row['Nivel'] == 1: return ['background-color: #1e40af; color: white; font-weight: bold'] * len(row)
-                if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
-                if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
+                # Nível 1: Grafite Profundo (Contraste alto com vermelho/verde)
+                if row['Nivel'] == 1: 
+                    return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
+                # Nível 2: Cinza Médio (Foco na separação de grupos)
+                if row['Nivel'] == 2: 
+                    return ['background-color: #e2e8f0; font-weight: bold; color: black'] * len(row)
+                # Nível 3: Azul Suave (Hierarquia de subgrupos)
+                if row['Nivel'] == 3: 
+                    return ['background-color: #f1f5f9; font-weight: bold; color: #1e293b'] * len(row)
                 return [''] * len(row)
 
-            # ALTERAÇÃO AQUI: Meses primeiro, Média e Acumulado por último
             cols = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
             
             st.dataframe(
                 df_base[cols].style.apply(style_rows, axis=1)
                 .format({c: formatar_moeda_br for c in cols if c not in ['Nivel', 'Conta', 'Descrição']})
-                .applymap(lambda x: 'color: #D10000' if isinstance(x, (int, float)) and x < 0 else 'color: #008000' if isinstance(x, (int, float)) and x > 0 else '', subset=meses_exibir + ['MÉDIA', 'ACUMULADO']),
+                .applymap(lambda x: 'color: #ef4444; font-weight: bold' if isinstance(x, (int, float)) and x < 0 
+                          else 'color: #22c55e; font-weight: bold' if isinstance(x, (int, float)) and x > 0 
+                          else '', subset=meses_exibir + ['MÉDIA', 'ACUMULADO']),
                 use_container_width=True, height=800
             )
