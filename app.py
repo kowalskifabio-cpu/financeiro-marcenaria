@@ -22,10 +22,9 @@ if not creds: st.stop()
 client = gspread.authorize(creds)
 spreadsheet = client.open_by_key("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 
-# --- FUNÇÃO DE LIMPEZA DE CONTA (Ajustada para Nível 3 também) ---
+# --- FUNÇÃO DE LIMPEZA DE CONTA ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
-    # Corrige datas que o Google Sheets as vezes importa errado
     if '/' in v or '-' in v: 
         v = v.replace('/', '.').replace('-', '.')
         partes = v.split('.')
@@ -33,8 +32,6 @@ def limpar_conta_blindado(valor, nivel):
             ano_corrigido = "001" if "2001" in partes[2] else partes[2][-3:]
             return f"{partes[1].zfill(2)}.{partes[0].zfill(2)}.{ano_corrigido}"
     
-    # GARANTIA DE HIERARQUIA: Se o nível 2 ou 3 não começar com 0 (ex: 1 ou 1.01), 
-    # adicionamos o zero para bater com o nível 4 (ex: 01 ou 01.01)
     if nivel in [2, 3]:
         if not v.startswith('0') and (len(v) == 1 or ('.' in v and len(v.split('.')[0]) == 1)):
             v = '0' + v
@@ -77,16 +74,15 @@ with aba2:
     
     if st.button("📊 Gerar Relatório de Níveis"):
         with st.spinner("Consolidando Níveis (4 -> 3 -> 2 -> 1)..."):
-            # Carregar Base de Estrutura
             df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
             df_base.columns = [str(c).strip() for c in df_base.columns]
             df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
-            
-            # Padronização de Contas
             df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
 
-            abas = [w.title for w in spreadsheet.worksheets() if f"_{ano_sel}" in w.title]
-            meses_exibir = [m for m in ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"] if f"{m}_{ano_sel}" in abas]
+            # Ordem cronológica garantida
+            ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+            abas_existentes = [w.title for w in spreadsheet.worksheets()]
+            meses_exibir = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
 
             if not meses_exibir:
                 st.warning("Sem dados para este ano.")
@@ -99,36 +95,32 @@ with aba2:
                 mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
                 df_base[m] = 0.0
                 
-                # Nível 4: Dados diretos da carga
                 df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
 
-                # Nível 3 e 2: Soma baseada no Nível 4
                 for n in [3, 2]:
                     for idx, row in df_base[df_base['Nivel'] == n].iterrows():
                         pref = str(row['Conta']).strip()
-                        # IMPORTANTE: Somamos todos os 'descendentes' de nível 4
                         total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][m].sum()
                         df_base.at[idx, m] = total
                 
-                # Nível 1: Resultado Final (Soma de todas as Receitas e Despesas de Nível 2)
                 for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
                     df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
 
-            # Cálculos de Apoio
             df_base['ACUMULADO'] = df_base[meses_exibir].sum(axis=1)
             df_base['MÉDIA'] = df_base[meses_exibir].mean(axis=1)
 
-            # Estilização de Linhas
             def style_rows(row):
                 if row['Nivel'] == 1: return ['background-color: #1e40af; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
 
-            cols = ['Nivel', 'Conta', 'Descrição', 'MÉDIA', 'ACUMULADO'] + meses_exibir
+            # ALTERAÇÃO AQUI: Meses primeiro, Média e Acumulado por último
+            cols = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
+            
             st.dataframe(
                 df_base[cols].style.apply(style_rows, axis=1)
                 .format({c: formatar_moeda_br for c in cols if c not in ['Nivel', 'Conta', 'Descrição']})
-                .applymap(lambda x: 'color: #D10000' if isinstance(x, (int, float)) and x < 0 else 'color: #008000' if isinstance(x, (int, float)) and x > 0 else '', subset=['MÉDIA', 'ACUMULADO'] + meses_exibir),
+                .applymap(lambda x: 'color: #D10000' if isinstance(x, (int, float)) and x < 0 else 'color: #008000' if isinstance(x, (int, float)) and x > 0 else '', subset=meses_exibir + ['MÉDIA', 'ACUMULADO']),
                 use_container_width=True, height=800
             )
