@@ -1,1 +1,3 @@
-pandas, gspread, streamlit
+pandas, 
+gspread, 
+streamlit
