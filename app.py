@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import plotly.express as px
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
@@ -47,8 +46,8 @@ def formatar_moeda_br(val):
 
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
-# --- ADIÇÃO DA TERCEIRA ABA ---
-aba1, aba2, aba3 = st.tabs(["📥 Carga de Dados", "📈 Relatório Consolidado", "📊 Indicadores Chave"])
+# Criando as 3 abas agora
+aba1, aba2, aba3 = st.tabs(["📥 Carga de Dados", "📈 Relatório Consolidado", "🎯 Indicadores"])
 
 with aba1:
     col_m, col_a = st.columns(2)
@@ -70,10 +69,11 @@ with aba1:
         ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
         st.success(f"✅ Dados salvos!")
 
-# Processamento Central de Dados (Para ser usado em ambas as abas)
+# Lógica compartilhada entre Aba 2 e Aba 3
 ano_sel = st.sidebar.selectbox("Ano de Análise", [2026, 2025, 2027])
 
-def calcular_dados_base(ano):
+# Função central para não repetir código
+def processar_bi(ano):
     df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
     df_base.columns = [str(c).strip() for c in df_base.columns]
     df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
@@ -82,6 +82,8 @@ def calcular_dados_base(ano):
     ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
     abas_existentes = [w.title for w in spreadsheet.worksheets()]
     meses_exibir = [m for m in ordem_meses if f"{m}_{ano}" in abas_existentes]
+
+    if not meses_exibir: return None, []
 
     for m in meses_exibir:
         df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
@@ -105,36 +107,41 @@ def calcular_dados_base(ano):
 
 with aba2:
     if st.button("📊 Gerar Relatório de Níveis"):
-        with st.spinner("Consolidando Níveis..."):
-            df_res, meses = calcular_dados_base(ano_sel)
-            
-            def style_rows(row):
-                if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
-                if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
-                if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
-                return [''] * len(row)
+        with st.spinner("Somando tudo..."):
+            df_res, meses = processar_bi(ano_sel)
+            if df_res is not None:
+                def style_rows(row):
+                    if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
+                    if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
+                    if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
+                    return [''] * len(row)
 
-            cols = ['Nivel', 'Conta', 'Descrição'] + meses + ['MÉDIA', 'ACUMULADO']
-            st.dataframe(df_res[cols].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
+                cols = ['Nivel', 'Conta', 'Descrição'] + meses + ['MÉDIA', 'ACUMULADO']
+                st.dataframe(df_res[cols].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
+            else:
+                st.warning("Sem dados para este ano.")
 
 with aba3:
-    st.subheader(f"📈 Performance Financeira - {ano_sel}")
-    if st.button("🚀 Calcular Indicadores"):
-        df_ind, meses = calcular_dados_base(ano_sel)
-        
-        # Filtros de Indicadores
-        receita_total = df_ind[df_ind['Descrição'].str.contains("RECEITA", case=False) & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
-        despesa_total = df_ind[df_ind['Descrição'].str.contains("DESPESA", case=False) & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
-        lucro_liquido = receita_total + despesa_total # Despesa já vem negativa
-        margem = (lucro_liquido / receita_total * 100) if receita_total != 0 else 0
+    st.subheader(f"Principais Números de {ano_sel}")
+    if st.button("📈 Ver Indicadores"):
+        df_ind, meses = processar_bi(ano_sel)
+        if df_ind is not None:
+            # Pegando valores de Receita (Nivel 2 que começa com 01) e Despesa (Nivel 2 que começa com 02)
+            # Adaptado para sua estrutura:
+            receita_total = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
+            despesa_total = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
+            lucro_ano = receita_total + despesa_total # Despesa já é negativa
 
-        # Layout de Metas (KPIs)
-        kpi1, kpi2, kpi3 = st.columns(3)
-        kpi1.metric("Faturamento Acumulado", formatar_moeda_br(receita_total))
-        kpi2.metric("Resultado Líquido", formatar_moeda_br(lucro_liquido), delta=f"{margem:.1f}% Margem")
-        kpi3.metric("Média Mensal de Lucro", formatar_moeda_br(df_ind[df_ind['Nivel'] == 1]['MÉDIA'].sum()))
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Faturamento Total", formatar_moeda_br(receita_total))
+            c2.metric("Despesa Total", formatar_moeda_br(despesa_total))
+            c3.metric("Lucro Líquido", formatar_moeda_br(lucro_ano), delta=f"{(lucro_ano/receita_total*100):.1f}% de Margem" if receita_total > 0 else "0%")
 
-        # Gráfico de Evolução
-        df_evolucao = df_ind[df_ind['Nivel'] == 2].melt(id_vars=['Descrição'], value_vars=meses, var_name='Mês', value_name='Valor')
-        fig = px.line(df_evolucao, x='Mês', y='Valor', color='Descrição', title="Evolução Mensal: Receitas vs Despesas", markers=True)
-        st.plotly_chart(fig, use_container_width=True)
+            st.divider()
+            st.write("### Oportunidade de Redução de Custos")
+            st.write("Abaixo as 10 maiores despesas analíticas (Nível 4) do ano:")
+            
+            maiores_despesas = df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO')
+            st.table(maiores_despesas[['Conta', 'Descrição', 'ACUMULADO']].head(10).style.format({'ACUMULADO': formatar_moeda_br}))
+        else:
+            st.warning("Sem dados para este ano.")
