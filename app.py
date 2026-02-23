@@ -3,18 +3,18 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
+# --- CONFIGURAÇÃO VISUAL ---
+st.set_page_config(page_title="Status Marcenaria - Gestão Financeira", layout="wide")
 
-# Estilização CSS para deixar o relatório mais limpo
+# Estilo para deixar a tabela elegante
 st.markdown("""
     <style>
-    .main { background-color: #f5f7f9; }
-    .stDataFrame { background-color: white; border-radius: 10px; padding: 10px; }
+    .stDataFrame { border: 1px solid #e6e9ef; border-radius: 5px; }
+    h1 { color: #1e3a8a; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CONEXÃO GOOGLE SHEETS ---
+# --- CONEXÃO ---
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
 def get_creds():
@@ -23,140 +23,101 @@ def get_creds():
         info["private_key"] = info["private_key"].replace("\\n", "\n")
         return Credentials.from_service_account_info(info, scopes=scope)
     except Exception as e:
-        st.error(f"⚠️ Erro nos Segredos do Streamlit: {e}")
+        st.error(f"Erro na chave: {e}")
         return None
 
 creds = get_creds()
-if creds:
-    client = gspread.authorize(creds)
-    spreadsheet = client.open_by_key("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
-else:
-    st.stop()
+if not creds: st.stop()
+client = gspread.authorize(creds)
+spreadsheet = client.open_by_key("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 
 st.title("📊 BI Financeiro - Status Marcenaria")
 
-aba1, aba2 = st.tabs(["📥 Upload de Dados", "📈 Relatório Consolidado"])
+aba1, aba2 = st.tabs(["📥 Importar Dados", "📈 Demonstrativo Consolidado"])
 
-# --- ABA 1: CARGA DE DADOS ---
+# --- ABA 1: CARGA ---
 with aba1:
-    st.info("Utilize esta aba para subir o fechamento mensal. O sistema substituirá dados se o período já existir.")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        mes_carga = st.selectbox("Mês de Referência", ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"])
-    with col_b:
-        ano_carga = st.selectbox("Ano de Referência", [2026, 2025, 2027], index=0)
-
-    arquivo = st.file_uploader("Arraste o Excel do sistema aqui", type=["xlsx"])
+    col_mes, col_ano = st.columns(2)
+    with col_mes: mes_ref = st.selectbox("Mês", ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"])
+    with col_ano: ano_ref = st.selectbox("Ano", [2026, 2025, 2027])
     
-    if arquivo and st.button("🚀 Processar e Salvar no Google"):
-        with st.spinner("Limpando e enviando dados..."):
-            df = pd.read_excel(arquivo)
-            
-            # Limpeza Crítica de Dados
-            df.columns = [str(c).strip() for c in df.columns]
-            # Extração do código da conta (ex: 01.01.001) - Trata como string sempre!
-            df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
-            # Conversão de Valor
-            df['Valor Baixado'] = pd.to_numeric(df['Valor Baixado'], errors='coerce').fillna(0)
-            # Regra de Sinal: P = Negativo, R = Positivo
-            df['Valor_Final'] = df.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
-            
-            nome_aba = f"{mes_carga}_{ano_carga}"
-            try:
-                try:
-                    ws = spreadsheet.worksheet(nome_aba)
-                    ws.clear()
-                except:
-                    ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="30")
-                
-                # Salva apenas colunas úteis para o relatório ser rápido
-                colunas_finais = ['Conta_ID', 'Valor_Final', 'Data Baixa', 'Histórico', 'Pag/Rec']
-                df_save = df[colunas_finais].astype(str)
-                ws.update([df_save.columns.values.tolist()] + df_save.values.tolist())
-                st.success(f"✅ Período {nome_aba} atualizado com sucesso!")
-            except Exception as e:
-                st.error(f"Falha na gravação: {e}")
+    arquivo = st.file_uploader("Subir Excel do Sistema", type=["xlsx"])
+    
+    if arquivo and st.button("Executar Carga"):
+        df = pd.read_excel(arquivo)
+        # Padroniza colunas do sistema
+        df.columns = [str(c).strip() for c in df.columns]
+        df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
+        df['Valor_Final'] = df.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
+        
+        nome_aba = f"{mes_ref}_{ano_ref}"
+        try:
+            ws = spreadsheet.worksheet(nome_aba)
+            ws.clear()
+        except:
+            ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
+        
+        ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
+        st.success(f"✅ Dados de {nome_aba} carregados!")
 
-# --- ABA 2: RELATÓRIO DE INDICADORES ---
+# --- ABA 2: RELATÓRIO ---
 with aba2:
-    ano_filtro = st.sidebar.selectbox("Filtrar Ano", [2026, 2025, 2027])
+    ano_sel = st.sidebar.selectbox("Ano do Relatório", [2026, 2025, 2027])
     
     if st.button("🔄 Gerar Demonstrativo Completo"):
-        with st.spinner("Consolidando meses e calculando níveis..."):
-            # 1. Carrega a Base Estrutural
-            try:
-                base_ws = spreadsheet.worksheet("Base")
-                df_report = pd.DataFrame(base_ws.get_all_records())
-                df_report.columns = [c.strip() for c in df_report.columns]
-                # Garante que 'Conta' na base seja string padronizada
-                df_report['Conta'] = df_report['Conta'].astype(str).str.strip()
-            except:
-                st.error("Erro: Aba 'Base' não encontrada ou colunas incorretas.")
+        with st.spinner("Calculando indicadores..."):
+            # 1. Carrega e Limpa a Base
+            df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+            df_base.columns = [str(c).strip() for c in df_base.columns]
+            # Renomeia para garantir que o código funcione independente do espaço no nome original
+            df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
+            df_base['Conta'] = df_base['Conta'].astype(str).str.strip()
+
+            # 2. Busca meses disponíveis
+            abas = [w.title for w in spreadsheet.worksheets() if f"_{ano_sel}" in w.title]
+            meses_lista = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+            meses_ativos = [m for m in meses_lista if f"{m}_{ano_sel}" in abas]
+
+            if not meses_ativos:
+                st.warning(f"Nenhum dado encontrado para {ano_sel}")
                 st.stop()
 
-            # 2. Localiza todas as abas do ano selecionado
-            all_worksheets = spreadsheet.worksheets()
-            abas_ano = [ws.title for ws in all_worksheets if f"_{ano_filtro}" in ws.title]
-            
-            if not abas_ano:
-                st.warning(f"Nenhum dado encontrado para o ano {ano_filtro}.")
-                st.stop()
+            # 3. Consolida valores
+            for m in meses_ativos:
+                df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano_sel}").get_all_records())
+                df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+                resumo = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+                df_base[m] = df_base['Conta'].map(resumo).fillna(0)
 
-            # 3. Consolida valores por mês
-            ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-            meses_encontrados = []
-
-            for mes_ref in ordem_meses:
-                nome_aba = f"{mes_ref}_{ano_filtro}"
-                if nome_aba in abas_ano:
-                    meses_encontrados.append(mes_ref)
-                    mov_ws = spreadsheet.worksheet(nome_aba)
-                    df_mov = pd.DataFrame(mov_ws.get_all_records())
-                    df_mov['Valor_Final'] = pd.to_numeric(df_mov['Valor_Final'], errors='coerce').fillna(0)
-                    
-                    # Soma por conta
-                    resumo = df_mov.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-                    df_report[mes_ref] = df_report['Conta'].map(resumo).fillna(0)
-
-            # 4. Cálculo Hierárquico (O coração do relatório)
-            for m in meses_encontrados:
-                # Soma de baixo para cima: Nível 4 -> 3 -> 2 -> 1
+                # SOMA HIERÁRQUICA (Níveis 4 -> 1)
                 for n in [3, 2, 1]:
-                    indices = df_report[df_report['Nivel'] == n].index
-                    for idx in indices:
-                        prefixo = df_report.at[idx, 'Conta']
-                        # Soma tudo que começa com o prefixo da conta pai
-                        filhos = df_report[df_report['Conta'].str.startswith(prefixo + ".")]
+                    for idx in df_base[df_base['Nivel'] == n].index:
+                        pref = df_base.at[idx, 'Conta']
+                        filhos = df_base[df_base['Conta'].str.startswith(pref + ".")]
                         if not filhos.empty:
-                            df_report.at[idx, m] = filhos[m].sum()
+                            df_base.at[idx, m] = filhos[m].sum()
 
-            # 5. Adiciona Média e Acumulado
-            df_report['TOTAL'] = df_report[meses_encontrados].sum(axis=1)
-            df_report['MEDIA'] = df_report[meses_encontrados].mean(axis=1)
+            # 4. Colunas de Indicadores
+            df_base['ACUMULADO'] = df_base[meses_ativos].sum(axis=1)
+            df_base['MÉDIA'] = df_base[meses_ativos].mean(axis=1)
 
-            # --- FORMATAÇÃO VISUAL ---
-            def highlight_levels(row):
-                if row['Nivel'] == 1: return ['background-color: #d1d5db; font-weight: bold'] * len(row)
-                if row['Nivel'] == 2: return ['background-color: #e5e7eb; font-weight: bold'] * len(row)
-                if row['Nivel'] == 3: return ['background-color: #f3f4f6'] * len(row)
+            # 5. Formatação Visual
+            def style_report(row):
+                if row['Nivel'] == 1: return ['background-color: #1e3a8a; color: white; font-weight: bold'] * len(row)
+                if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold'] * len(row)
+                if row['Nivel'] == 3: return ['background-color: #f1f5f9; font-weight: bold'] * len(row)
                 return [''] * len(row)
 
-            # Formatação de Moeda e Cores para Valores
-            format_dict = {m: "R$ {:,.2f}" for m in meses_encontrados}
-            format_dict.update({"TOTAL": "R$ {:,.2f}", "MEDIA": "R$ {:,.2f}"})
+            # Reordenar colunas conforme solicitado
+            colunas_finais = ['Nivel', 'Conta', 'Descrição', 'MÉDIA', 'ACUMULADO'] + meses_ativos
+            df_display = df_base[colunas_finais]
 
-            # Exibição Final
-            st.subheader(f"Demonstrativo Consolidado - {ano_filtro}")
-            
-            df_final = df_report[['Nivel', 'Conta', 'Descrição ', 'MEDIA', 'TOTAL'] + meses_encontrados]
-            
             st.dataframe(
-                df_final.style.apply(highlight_levels, axis=1)
-                .format(format_dict)
-                .applymap(lambda x: 'color: red' if isinstance(x, (int, float)) and x < 0 else 'color: green' if isinstance(x, (int, float)) and x > 0 else '', 
-                          subset=meses_encontrados + ['TOTAL', 'MEDIA']),
-                use_container_width=True,
-                height=700
+                df_display.style.apply(style_report, axis=1)
+                .format({col: "R$ {:,.2f}" for col in colunas_finais if col not in ['Nivel', 'Conta', 'Descrição']})
+                .applymap(lambda x: 'color: #e11d48' if isinstance(x, (int, float)) and x < 0 else 'color: #16a34a' if isinstance(x, (int, float)) and x > 0 else '', 
+                          subset=['MÉDIA', 'ACUMULADO'] + meses_ativos),
+                use_container_width=True, height=800
             )
 
             # Exportação
