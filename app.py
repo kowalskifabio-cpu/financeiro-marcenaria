@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import plotly.express as px # Adicionada para o gráfico
+import plotly.express as px
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
@@ -104,6 +104,18 @@ def processar_bi(ano):
     return df_base, meses_exibir
 
 with aba2:
+    # --- AJUSTE CSS: BARRA DE ROLAGEM NO TOPO ---
+    st.markdown("""
+        <style>
+            .stDataFrame div[data-testid="stHorizontalScrollContainer"] {
+                transform: rotateX(180deg);
+            }
+            .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div {
+                transform: rotateX(180deg);
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
     if st.button("📊 Gerar Relatório de Níveis"):
         with st.spinner("Somando tudo..."):
             df_res, meses = processar_bi(ano_sel)
@@ -134,20 +146,11 @@ with aba3:
             c3.metric("Lucro Líquido", formatar_moeda_br(lucro_ano), delta=f"{(lucro_ano/receita_total*100):.1f}% de Margem" if receita_total > 0 else "0%")
 
             st.divider()
-            
-            # --- NOVO GRÁFICO DE BARRAS LADO A LADO ---
             st.write("### Evolução Mensal")
-            
-            # 1. Filtrar apenas as linhas de Receita (01) e Despesa (02) de Nível 2
             df_chart = df_ind[(df_ind['Nivel'] == 2) & (df_ind['Conta'].isin(['01', '02']))].copy()
-            
-            # 2. Reorganizar para o gráfico (Melt)
             df_melted = df_chart.melt(id_vars=['Descrição'], value_vars=meses, var_name='Mês', value_name='Valor')
-            
-            # 3. Ajustar valores de despesa para positivo apenas no gráfico para comparação de barras
             df_melted['Valor_Abs'] = df_melted['Valor'].abs()
             
-            # 4. Criar o gráfico
             fig = px.bar(df_melted, 
                          x='Mês', 
                          y='Valor_Abs', 
