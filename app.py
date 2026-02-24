@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
+import plotly.express as px # Adicionada para o gráfico
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
@@ -46,7 +47,6 @@ def formatar_moeda_br(val):
 
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
-# Criando as 3 abas agora
 aba1, aba2, aba3 = st.tabs(["📥 Carga de Dados", "📈 Relatório Consolidado", "🎯 Indicadores"])
 
 with aba1:
@@ -69,10 +69,8 @@ with aba1:
         ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
         st.success(f"✅ Dados salvos!")
 
-# Lógica compartilhada entre Aba 2 e Aba 3
 ano_sel = st.sidebar.selectbox("Ano de Análise", [2026, 2025, 2027])
 
-# Função central para não repetir código
 def processar_bi(ano):
     df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
     df_base.columns = [str(c).strip() for c in df_base.columns]
@@ -126,11 +124,9 @@ with aba3:
     if st.button("📈 Ver Indicadores"):
         df_ind, meses = processar_bi(ano_sel)
         if df_ind is not None:
-            # Pegando valores de Receita (Nivel 2 que começa com 01) e Despesa (Nivel 2 que começa com 02)
-            # Adaptado para sua estrutura:
             receita_total = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
             despesa_total = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
-            lucro_ano = receita_total + despesa_total # Despesa já é negativa
+            lucro_ano = receita_total + despesa_total
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Faturamento Total", formatar_moeda_br(receita_total))
@@ -138,10 +134,33 @@ with aba3:
             c3.metric("Lucro Líquido", formatar_moeda_br(lucro_ano), delta=f"{(lucro_ano/receita_total*100):.1f}% de Margem" if receita_total > 0 else "0%")
 
             st.divider()
-            st.write("### Oportunidade de Redução de Custos")
-            st.write("Abaixo as 10 maiores despesas analíticas (Nível 4) do ano:")
             
+            # --- NOVO GRÁFICO DE BARRAS LADO A LADO ---
+            st.write("### Evolução Mensal")
+            
+            # 1. Filtrar apenas as linhas de Receita (01) e Despesa (02) de Nível 2
+            df_chart = df_ind[(df_ind['Nivel'] == 2) & (df_ind['Conta'].isin(['01', '02']))].copy()
+            
+            # 2. Reorganizar para o gráfico (Melt)
+            df_melted = df_chart.melt(id_vars=['Descrição'], value_vars=meses, var_name='Mês', value_name='Valor')
+            
+            # 3. Ajustar valores de despesa para positivo apenas no gráfico para comparação de barras
+            df_melted['Valor_Abs'] = df_melted['Valor'].abs()
+            
+            # 4. Criar o gráfico
+            fig = px.bar(df_melted, 
+                         x='Mês', 
+                         y='Valor_Abs', 
+                         color='Descrição', 
+                         barmode='group',
+                         labels={'Valor_Abs': 'Valor (R$)', 'Descrição': 'Tipo'},
+                         color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'},
+                         text_auto='.2s')
+
+            fig.update_layout(xaxis_title="Meses", yaxis_title="Valor em Reais", legend_title="Legenda")
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.divider()
+            st.write("### Maiores Despesas (Top 10)")
             maiores_despesas = df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO')
             st.table(maiores_despesas[['Conta', 'Descrição', 'ACUMULADO']].head(10).style.format({'ACUMULADO': formatar_moeda_br}))
-        else:
-            st.warning("Sem dados para este ano.")
