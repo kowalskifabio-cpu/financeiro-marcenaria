@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.express as px
+import io # Necessário para a exportação Excel
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
@@ -107,12 +108,8 @@ with aba2:
     # --- AJUSTE CSS: BARRA DE ROLAGEM NO TOPO ---
     st.markdown("""
         <style>
-            .stDataFrame div[data-testid="stHorizontalScrollContainer"] {
-                transform: rotateX(180deg);
-            }
-            .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div {
-                transform: rotateX(180deg);
-            }
+            .stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); }
+            .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }
         </style>
     """, unsafe_allow_html=True)
 
@@ -120,14 +117,26 @@ with aba2:
         with st.spinner("Somando tudo..."):
             df_res, meses = processar_bi(ano_sel)
             if df_res is not None:
+                # --- FUNÇÃO DE EXPORTAÇÃO ---
+                cols_export = ['Nivel', 'Conta', 'Descrição'] + meses + ['MÉDIA', 'ACUMULADO']
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    df_res[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
+                
+                st.download_button(
+                    label="📥 Exportar para Excel",
+                    data=buffer.getvalue(),
+                    file_name=f"Relatorio_Consolidado_{ano_sel}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
                 def style_rows(row):
                     if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                     if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                     if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                     return [''] * len(row)
 
-                cols = ['Nivel', 'Conta', 'Descrição'] + meses + ['MÉDIA', 'ACUMULADO']
-                st.dataframe(df_res[cols].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
+                st.dataframe(df_res[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
             else:
                 st.warning("Sem dados para este ano.")
 
@@ -151,14 +160,9 @@ with aba3:
             df_melted = df_chart.melt(id_vars=['Descrição'], value_vars=meses, var_name='Mês', value_name='Valor')
             df_melted['Valor_Abs'] = df_melted['Valor'].abs()
             
-            fig = px.bar(df_melted, 
-                         x='Mês', 
-                         y='Valor_Abs', 
-                         color='Descrição', 
-                         barmode='group',
+            fig = px.bar(df_melted, x='Mês', y='Valor_Abs', color='Descrição', barmode='group',
                          labels={'Valor_Abs': 'Valor (R$)', 'Descrição': 'Tipo'},
-                         color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'},
-                         text_auto='.2s')
+                         color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'}, text_auto='.2s')
 
             fig.update_layout(xaxis_title="Meses", yaxis_title="Valor em Reais", legend_title="Legenda")
             st.plotly_chart(fig, use_container_width=True)
