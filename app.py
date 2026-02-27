@@ -98,7 +98,7 @@ with aba1:
                 st.error(f"❌ CARGA ABORTADA: Datas fora de {m_ref}/{a_ref} detectadas.")
                 st.stop()
 
-        # 2. FILTRO E AVISO DE "BAIXA VINCULO"
+        # 2. FILTRO E AVISO DE "BAIXA VINCULO" (RESTAURADO)
         if 'Histórico' in df.columns:
             total_antes = len(df)
             df = df[~df['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
@@ -118,16 +118,6 @@ with aba1:
             st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base' antes de seguir:")
             st.write(list(contas_faltantes))
             st.stop()
-            
-        # Validação de Centros de Custo novos
-        if 'Centro de Custo' in df.columns:
-            try:
-                cc_cadastrados = set(pd.DataFrame(spreadsheet.worksheet("Config").get_all_records())['Centro de Custo'].unique())
-                cc_carga = set(df['Centro de Custo'].dropna().unique())
-                cc_novos = cc_carga - cc_cadastrados
-                if cc_novos:
-                    st.info(f"💡 Novos Centros de Custo detectados: {cc_novos}. (Apenas informativo)")
-            except: pass
 
         df['Valor_Final'] = df.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
         
@@ -142,21 +132,25 @@ with aba1:
 
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
-ano_sel = st.sidebar.selectbox("Ano", [2026, 2025, 2027], index=1) # 2025 como padrão agora
+ano_sel = st.sidebar.selectbox("Ano", [2026, 2025, 2027], index=1)
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600) # Aumentado para 10 minutos para evitar APIError
 def listar_abas_existentes():
-    return [w.title for w in spreadsheet.worksheets()]
+    try:
+        return [w.title for w in spreadsheet.worksheets()]
+    except:
+        time.sleep(2) # Pequena pausa se a API falhar
+        return [w.title for w in spreadsheet.worksheets()]
 
 abas_existentes = listar_abas_existentes()
 meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
 meses_sel = st.sidebar.multiselect("Meses", meses_disponiveis, default=meses_disponiveis)
 
 @st.cache_data(ttl=600)
-def obter_centros_custo(ano, meses):
+def obter_centros_custo(ano, meses_tuple): # Tuple para permitir cache
     centros = set()
-    for m in meses:
+    for m in meses_tuple:
         try:
             df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
             if 'Centro de Custo' in df_m.columns:
@@ -164,7 +158,7 @@ def obter_centros_custo(ano, meses):
         except: pass
     return sorted(list(centros))
 
-lista_cc = obter_centros_custo(ano_sel, meses_disponiveis)
+lista_cc = obter_centros_custo(ano_sel, tuple(meses_disponiveis))
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
 
@@ -209,7 +203,7 @@ def gerar_dados_pizza(df, nivel, limite=10):
         principais = dados.head(limite).copy()
         outros_val = dados.iloc[limite:]['Abs_Acumulado'].sum()
         outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
-        return pd.concat([principais,裝outros_df], ignore_index=True)
+        return pd.concat([principais, outros_df], ignore_index=True)
     return dados
 
 with aba2:
