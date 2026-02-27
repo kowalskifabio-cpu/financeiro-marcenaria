@@ -93,22 +93,22 @@ with aba1:
 st.sidebar.header("Filtros de Análise")
 ano_sel = st.sidebar.selectbox("Ano", [2026, 2025, 2027])
 
-# Busca meses disponíveis no Sheets para este ano
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 abas_existentes = [w.title for w in spreadsheet.worksheets()]
 meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
 
 meses_sel = st.sidebar.multiselect("Meses", meses_disponiveis, default=meses_disponiveis)
 
-# Função para buscar todos os centros de custo disponíveis nos dados carregados
+# Função para buscar todos os centros de CUSTO (Coluna O)
 @st.cache_data(ttl=600)
 def obter_centros_custo(ano, meses):
     centros = set()
     for m in meses:
         try:
             df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
-            if 'Centro de Resultado' in df_m.columns:
-                centros.update(df_m['Centro de Resultado'].astype(str).unique())
+            # Mudança aqui: apontando para 'Centro de Custo' (Coluna O)
+            if 'Centro de Custo' in df_m.columns:
+                centros.update(df_m['Centro de Custo'].astype(str).unique())
         except: pass
     return sorted(list(centros))
 
@@ -127,9 +127,10 @@ def processar_bi(ano, meses, filtros_cc):
         df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
         df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
         
-        # Aplicar Filtro de Centro de Custo se não for "Todos"
+        # Ajuste no Filtro: Centro de Custo em vez de Resultado
         if "Todos" not in filtros_cc and filtros_cc:
-            df_m = df_m[df_m['Centro de Resultado'].isin(filtros_cc)]
+            if 'Centro de Custo' in df_m.columns:
+                df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
             
         mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
         df_base[m] = 0.0
@@ -151,14 +152,14 @@ def processar_bi(ano, meses, filtros_cc):
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     if st.button("📊 Gerar Relatório Filtrado"):
-        with st.spinner("Processando filtros..."):
+        with st.spinner("Analisando Centros de Custo..."):
             df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
             if df_res is not None:
                 cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     df_res[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
-                st.download_button(label="📥 Exportar Excel", data=buffer.getvalue(), file_name=f"BI_Marcenaria_{ano_sel}.xlsx")
+                st.download_button(label="📥 Exportar Excel", data=buffer.getvalue(), file_name=f"BI_Status_{ano_sel}.xlsx")
 
                 def style_rows(row):
                     if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
@@ -180,7 +181,6 @@ with aba3:
             c2.metric("Despesa", formatar_moeda_br(despesa))
             c3.metric("Lucro Líquido", formatar_moeda_br(lucro), delta=f"{(lucro/receita*100):.1f}%" if receita > 0 else "0%")
             
-            # Gráfico adaptado aos filtros
             df_chart = df_ind[(df_ind['Nivel'] == 2) & (df_ind['Conta'].isin(['01', '02']))].copy()
             df_melted = df_chart.melt(id_vars=['Descrição'], value_vars=meses_exibir, var_name='Mês', value_name='Valor')
             fig = px.bar(df_melted, x='Mês', y=df_melted['Valor'].abs(), color='Descrição', barmode='group', color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'})
