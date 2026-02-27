@@ -3,7 +3,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.express as px
-import plotly.graph_objects as go  # Essencial para a linha de lucro e evitar erros
+import plotly.graph_objects as go
 import io 
 
 # --- CONFIGURAÇÃO ---
@@ -13,6 +13,10 @@ scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis
 
 def get_creds():
     try:
+        # Tenta buscar nos secrets. Se falhar, avisa o usuário.
+        if "gcp_service_account" not in st.secrets:
+            st.error("❌ Chave 'gcp_service_account' não encontrada nos Secrets do Streamlit.")
+            return None
         info = dict(st.secrets["gcp_service_account"])
         info["private_key"] = info["private_key"].replace("\\n", "\n")
         return Credentials.from_service_account_info(info, scopes=scope)
@@ -90,7 +94,7 @@ with aba1:
         ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
         st.success(f"✅ Dados salvos com sucesso!")
 
-# --- FILTROS LATERAIS (SIDEBAR) ---
+# --- SIDEBAR (FILTROS) ---
 st.sidebar.header("Filtros de Análise")
 ano_sel = st.sidebar.selectbox("Ano", [2026, 2025, 2027])
 
@@ -98,7 +102,7 @@ ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julh
 abas_existentes = [w.title for w in spreadsheet.worksheets()]
 meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
 
-meses_sel = st.sidebar.multiselect("Meses", meses_disponiveis, default=meses_disponiveis)
+meses_sel = st.sidebar.multiselect("Selecione os Meses", meses_disponiveis, default=meses_disponiveis)
 
 @st.cache_data(ttl=600)
 def obter_centros_custo(ano, meses):
@@ -151,17 +155,17 @@ def processar_bi(ano, meses, filtros_cc):
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     if st.button("📊 Gerar Relatório Filtrado"):
-        with st.spinner("Filtrando e processando..."):
+        with st.spinner("Processando dados..."):
             df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
             if df_res is not None:
-                df_visualizar = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
+                # Aplicar filtro visual de nível
+                df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
                 cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
                 
-                # Exportação Excel
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    df_visualizar[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
-                st.download_button(label="📥 Exportar Excel", data=buffer.getvalue(), file_name=f"BI_Marcenaria_{ano_sel}.xlsx")
+                    df_visual[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
+                st.download_button(label="📥 Exportar para Excel", data=buffer.getvalue(), file_name=f"BI_Marcenaria_{ano_sel}.xlsx")
 
                 def style_rows(row):
                     if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
@@ -169,7 +173,7 @@ with aba2:
                     if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                     return [''] * len(row)
                 
-                st.dataframe(df_visualizar[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
+                st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
 
 with aba3:
     st.subheader("Indicadores de Performance")
@@ -179,24 +183,19 @@ with aba3:
             rec = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
             desp = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
             lucro = rec + desp
-            
             c1, c2, c3 = st.columns(3)
             c1.metric("Faturamento", formatar_moeda_br(rec))
             c2.metric("Despesa", formatar_moeda_br(desp))
             c3.metric("Lucro Líquido", formatar_moeda_br(lucro), delta=f"{(lucro/rec*100):.1f}%" if rec > 0 else "0%")
             
-            # Gráfico de Barras Agrupadas com Linha de Lucro
             df_chart = df_ind[(df_ind['Nivel'] == 2) & (df_ind['Conta'].isin(['01', '02']))].copy()
             df_melted = df_chart.melt(id_vars=['Descrição'], value_vars=meses_exibir, var_name='Mês', value_name='Valor')
             
             fig = px.bar(df_melted, x='Mês', y=df_melted['Valor'].abs(), color='Descrição', barmode='group',
                          color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'}, text_auto='.2s')
             
+            # Adicionar Linha de Lucro
             df_lucro_line = df_ind[df_ind['Nivel'] == 1].melt(value_vars=meses_exibir, var_name='Mês', value_name='Lucro')
             fig.add_trace(go.Scatter(x=df_lucro_line['Mês'], y=df_lucro_line['Lucro'], name='LUCRO LÍQUIDO', line=dict(color='#1e40af', width=3)))
             
             st.plotly_chart(fig, use_container_width=True)
-            
-            st.write("### Top 10 Despesas")
-            top_d = df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO')
-            st.table(top_d[['Conta', 'Descrição', 'ACUMULADO']].head(10).style.format({'ACUMULADO': formatar_moeda_br}))
