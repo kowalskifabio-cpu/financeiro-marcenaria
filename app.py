@@ -158,6 +158,19 @@ def processar_bi(ano, meses, filtros_cc):
     df_base['MÉDIA'] = df_base[meses].mean(axis=1)
     return df_base, meses
 
+# --- FUNÇÃO AUXILIAR PARA PIZZA ---
+def gerar_dados_pizza(df, nivel, limite=10):
+    dados = df[(df['Nivel'] == nivel) & (df['ACUMULADO'] < 0)].copy()
+    dados['Abs_Acumulado'] = dados['ACUMULADO'].abs()
+    dados = dados.sort_values(by='Abs_Acumulado', ascending=False)
+    
+    if len(dados) > limite:
+        principais = dados.head(limite).copy()
+        outros_val = dados.iloc[limite:]['Abs_Acumulado'].sum()
+        outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
+        return pd.concat([principais, outros_df], ignore_index=True)
+    return dados
+
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     if st.button("📊 Gerar Relatório Filtrado"):
@@ -200,15 +213,25 @@ with aba3:
 
             st.divider()
             
-            # --- NOVA SEÇÃO: TOP GASTOS NÍVEL 3 E 4 ---
+            # --- SEÇÃO: TOP GASTOS NÍVEL 3 E 4 ---
             col_top3, col_top4 = st.columns(2)
             
             with col_top3:
                 st.write("### 📉 Maiores Grupos (Nível 3)")
-                top3 = df_ind[(df_ind['Nivel'] == 3) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO')
-                st.table(top3[['Conta', 'Descrição', 'ACUMULADO']].head(10).style.format({'ACUMULADO': formatar_moeda_br}))
+                df_pizza3 = gerar_dados_pizza(df_ind, 3)
+                fig_p3 = px.pie(df_pizza3, values='Abs_Acumulado', names='Descrição', hole=0.4,
+                               color_discrete_sequence=px.colors.sequential.RdBu)
+                fig_p3.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig_p3, use_container_width=True)
+                
+                st.table(df_ind[(df_ind['Nivel'] == 3) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
 
             with col_top4:
                 st.write("### 🔍 Maiores Detalhes (Nível 4)")
-                top4 = df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO')
-                st.table(top4[['Conta', 'Descrição', 'ACUMULADO']].head(10).style.format({'ACUMULADO': formatar_moeda_br}))
+                df_pizza4 = gerar_dados_pizza(df_ind, 4)
+                fig_p4 = px.pie(df_pizza4, values='Abs_Acumulado', names='Descrição', hole=0.4,
+                               color_discrete_sequence=px.colors.sequential.YlOrRd)
+                fig_p4.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig_p4, use_container_width=True)
+                
+                st.table(df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
