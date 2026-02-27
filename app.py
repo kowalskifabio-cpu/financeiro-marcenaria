@@ -86,38 +86,49 @@ with aba1:
         df = pd.read_excel(arq)
         df.columns = [str(c).strip() for c in df.columns]
         
-        # --- NOVA TRAVA DE SEGURANÇA: VALIDAÇÃO DE DATAS ---
+        # 1. VALIDAÇÃO DE DATAS
         if 'Data Baixa' in df.columns:
             df['Data Baixa'] = pd.to_datetime(df['Data Baixa'], errors='coerce')
             mes_num = meses_lista.index(m_ref) + 1
             ultimo_dia = calendar.monthrange(a_ref, mes_num)[1]
             data_inicio = datetime(a_ref, mes_num, 1)
             data_fim = datetime(a_ref, mes_num, ultimo_dia)
-            
             fora_do_periodo = df[(df['Data Baixa'] < data_inicio) | (df['Data Baixa'] > data_fim)]
-            
             if not fora_do_periodo.empty:
-                st.error(f"❌ CARGA ABORTADA: O arquivo contém {len(fora_do_periodo)} linhas fora do período de {m_ref}/{a_ref}.")
-                st.write("Datas inconsistentes encontradas:", fora_do_periodo['Data Baixa'].dt.strftime('%d/%m/%Y').unique())
+                st.error(f"❌ CARGA ABORTADA: Datas fora de {m_ref}/{a_ref} detectadas.")
                 st.stop()
-        else:
-            st.warning("⚠️ Coluna 'Data Baixa' não encontrada para validação automática de período.")
 
+        # 2. FILTRO E AVISO DE "BAIXA VINCULO"
         if 'Histórico' in df.columns:
+            total_antes = len(df)
             df = df[~df['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
+            removidos = total_antes - len(df)
+            if removidos > 0:
+                st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
 
-        df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
-        
+        # 3. VALIDAÇÃO DE CONTAS E CENTROS DE CUSTO
         df_base_check = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
         contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
+        
+        df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
         contas_carga = set(df['Conta_ID'].unique())
         contas_faltantes = contas_carga - contas_base
         
         if contas_faltantes:
-            st.error("⚠️ ERRO: Contas não encontradas na aba 'Base':")
+            st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base' antes de seguir:")
             st.write(list(contas_faltantes))
             st.stop()
-        
+            
+        # Validação de Centros de Custo novos
+        if 'Centro de Custo' in df.columns:
+            try:
+                cc_cadastrados = set(pd.DataFrame(spreadsheet.worksheet("Config").get_all_records())['Centro de Custo'].unique())
+                cc_carga = set(df['Centro de Custo'].dropna().unique())
+                cc_novos = cc_carga - cc_cadastrados
+                if cc_novos:
+                    st.info(f"💡 Novos Centros de Custo detectados: {cc_novos}. (Apenas informativo)")
+            except: pass
+
         df['Valor_Final'] = df.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
         
         nome_aba = f"{m_ref}_{a_ref}"
@@ -127,11 +138,11 @@ with aba1:
         except:
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
         ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
-        st.success(f"✅ Dados de {m_ref}/{a_ref} salvos com sucesso!")
+        st.success(f"✅ Dados de {m_ref}/{a_ref} salvos!")
 
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
-ano_sel = st.sidebar.selectbox("Ano", [2026, 2025, 2027])
+ano_sel = st.sidebar.selectbox("Ano", [2026, 2025, 2027], index=1) # 2025 como padrão agora
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
 @st.cache_data(ttl=300)
@@ -157,7 +168,7 @@ lista_cc = obter_centros_custo(ano_sel, meses_disponiveis)
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
 
-# --- PROCESSAMENTO (GARANTE AS 237 LINHAS DA ABA BASE) ---
+# --- PROCESSAMENTO (237 LINHAS GARANTIDAS) ---
 def processar_bi(ano, meses, filtros_cc):
     if not meses: return None, []
     df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
@@ -198,7 +209,7 @@ def gerar_dados_pizza(df, nivel, limite=10):
         principais = dados.head(limite).copy()
         outros_val = dados.iloc[limite:]['Abs_Acumulado'].sum()
         outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
-        return pd.concat([principais, outros_df], ignore_index=True)
+        return pd.concat([principais,裝outros_df], ignore_index=True)
     return dados
 
 with aba2:
