@@ -6,6 +6,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import io 
 import time
+from datetime import datetime
+import calendar
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
@@ -49,7 +51,6 @@ def limpar_conta_blindado(valor, nivel):
             ano_corrigido = "001" if "2001" in partes[2] else partes[2][-3:]
             return f"{partes[1].zfill(2)}.{partes[0].zfill(2)}.{ano_corrigido}"
     
-    # Bloqueio contra encurtamento de 02.10 para 2.1
     if nivel == 3 and '.' in v:
         p = v.split('.')
         p0 = p[0].zfill(2)
@@ -76,13 +77,32 @@ aba1, aba2, aba3 = st.tabs(["📥 Carga de Dados", "📈 Relatório Consolidado"
 
 with aba1:
     col_m, col_a = st.columns(2)
-    with col_m: m_ref = st.selectbox("Mês", ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"])
+    meses_lista = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    with col_m: m_ref = st.selectbox("Mês", meses_lista)
     with col_a: a_ref = st.selectbox("Ano", [2026, 2025, 2027])
     arq = st.file_uploader("Subir Excel do Sistema", type=["xlsx"])
     
     if arq and st.button("🚀 Salvar Período"):
         df = pd.read_excel(arq)
         df.columns = [str(c).strip() for c in df.columns]
+        
+        # --- NOVA TRAVA DE SEGURANÇA: VALIDAÇÃO DE DATAS ---
+        if 'Data Baixa' in df.columns:
+            df['Data Baixa'] = pd.to_datetime(df['Data Baixa'], errors='coerce')
+            mes_num = meses_lista.index(m_ref) + 1
+            ultimo_dia = calendar.monthrange(a_ref, mes_num)[1]
+            data_inicio = datetime(a_ref, mes_num, 1)
+            data_fim = datetime(a_ref, mes_num, ultimo_dia)
+            
+            fora_do_periodo = df[(df['Data Baixa'] < data_inicio) | (df['Data Baixa'] > data_fim)]
+            
+            if not fora_do_periodo.empty:
+                st.error(f"❌ CARGA ABORTADA: O arquivo contém {len(fora_do_periodo)} linhas fora do período de {m_ref}/{a_ref}.")
+                st.write("Datas inconsistentes encontradas:", fora_do_periodo['Data Baixa'].dt.strftime('%d/%m/%Y').unique())
+                st.stop()
+        else:
+            st.warning("⚠️ Coluna 'Data Baixa' não encontrada para validação automática de período.")
+
         if 'Histórico' in df.columns:
             df = df[~df['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
 
@@ -107,7 +127,7 @@ with aba1:
         except:
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
         ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
-        st.success(f"✅ Dados salvos!")
+        st.success(f"✅ Dados de {m_ref}/{a_ref} salvos com sucesso!")
 
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
@@ -156,7 +176,6 @@ def processar_bi(ano, meses, filtros_cc):
         df_base[m] = 0.0
         df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
 
-        # Soma hierárquica rigorosa
         for n in [3, 2]:
             for idx, row in df_base[df_base['Nivel'] == n].iterrows():
                 pref = str(row['Conta']).strip() + "."
@@ -175,7 +194,6 @@ def gerar_dados_pizza(df, nivel, limite=10):
     dados = df[(df['Nivel'] == nivel) & (df['ACUMULADO'] < 0)].copy()
     dados['Abs_Acumulado'] = dados['ACUMULADO'].abs()
     dados = dados.sort_values(by='Abs_Acumulado', ascending=False)
-    
     if len(dados) > limite:
         principais = dados.head(limite).copy()
         outros_val = dados.iloc[limite:]['Abs_Acumulado'].sum()
