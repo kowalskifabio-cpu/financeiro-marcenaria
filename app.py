@@ -39,7 +39,7 @@ def abrir_planilha(key):
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
 
-# --- FUNÇÃO DE LIMPEZA DE CONTA ---
+# --- FUNÇÃO DE LIMPEZA DE CONTA (CORRIGIDA PARA MANTER O .10) ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
     if '/' in v or '-' in v: 
@@ -48,6 +48,14 @@ def limpar_conta_blindado(valor, nivel):
         if len(partes) >= 3:
             ano_corrigido = "001" if "2001" in partes[2] else partes[2][-3:]
             return f"{partes[1].zfill(2)}.{partes[0].zfill(2)}.{ano_corrigido}"
+    
+    # Tratamento para evitar que 2.10 vire 2.1
+    if nivel == 3 and '.' in v:
+        p = v.split('.')
+        # Se após o ponto tiver apenas um dígito (ex: 2.1), força o 10
+        if len(p[1]) == 1:
+            v = f"{p[0]}.{p[1]}0"
+            
     if nivel in [2, 3]:
         if not v.startswith('0') and (len(v) == 1 or ('.' in v and len(v.split('.')[0]) == 1)):
             v = '0' + v
@@ -133,6 +141,7 @@ def processar_bi(ano, meses, filtros_cc):
     df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
     df_base.columns = [str(c).strip() for c in df_base.columns]
     df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
+    # Aplica a limpeza que garante o formato texto .10
     df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
 
     for m in meses:
@@ -144,13 +153,23 @@ def processar_bi(ano, meses, filtros_cc):
             
         mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
         df_base[m] = 0.0
+        # Nível 4 recebe lançamentos diretos
         df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
 
-        for n in [3, 2]:
-            for idx, row in df_base[df_base['Nivel'] == n].iterrows():
-                pref = str(row['Conta']).strip()
-                total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][m].sum()
-                df_base.at[idx, m] = total
+        # SOMA HIERÁRQUICA RIGOROSA (Calcula do detalhe para o topo)
+        # Nível 3: Soma seus filhos (Nível 4)
+        for idx, row in df_base[df_base['Nivel'] == 3].iterrows():
+            pref = str(row['Conta']).strip() + "." # Adiciono o ponto para evitar pegar 2.11 ao somar 2.1
+            total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][m].sum()
+            df_base.at[idx, m] = total
+            
+        # Nível 2: Soma seus filhos (Nível 3)
+        for idx, row in df_base[df_base['Nivel'] == 2].iterrows():
+            pref = str(row['Conta']).strip()
+            total = df_base[(df_base['Nivel'] == 3) & (df_base['Conta'].str.startswith(pref))][m].sum()
+            df_base.at[idx, m] = total
+            
+        # Nível 1: Soma Nível 2
         for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
             df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
 
@@ -234,4 +253,4 @@ with aba3:
                 fig_p4.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig_p4, use_container_width=True)
                 
-                st.table(df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
+                st.table(df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))tar_moeda_br}))
