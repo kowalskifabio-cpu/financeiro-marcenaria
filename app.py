@@ -60,8 +60,7 @@ with aba1:
         df = pd.read_excel(arq)
         df.columns = [str(c).strip() for c in df.columns]
         
-        # --- MELHORIA: FILTRAGEM DE HISTÓRICO ---
-        # Removemos linhas que contenham "baixa vinculo" no Histórico (independente de maiúscula/minúscula)
+        # --- FILTRAGEM DE HISTÓRICO ---
         if 'Histórico' in df.columns:
             total_antes = len(df)
             df = df[~df['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
@@ -69,7 +68,23 @@ with aba1:
             if removidos > 0:
                 st.info(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram desconsiderados.")
 
+        # Gerar a coluna de ID para conferência
         df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
+
+        # --- NOVA MELHORIA: VALIDAÇÃO CONTRA A ABA BASE ---
+        df_base_check = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+        # Pegamos os códigos da primeira coluna da base
+        contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
+        contas_carga = set(df['Conta_ID'].unique())
+        
+        # Encontrar contas que estão no Excel mas NÃO estão na Base
+        contas_faltantes = contas_carga - contas_base
+        
+        if contas_faltantes:
+            st.error("⚠️ ERRO DE INTEGRIDADE: Contas encontradas no Excel que não existem na aba 'Base':")
+            st.write(list(contas_faltantes))
+            st.warning("Cadastre estas contas na aba 'Base' da planilha mãe antes de realizar a carga para evitar erros nos totais.")
+            st.stop() # Interrompe a carga
         
         # Regra P/R Soberana: P = Negativo, R = Positivo
         df['Valor_Final'] = df.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
@@ -81,7 +96,7 @@ with aba1:
         except:
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
         ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
-        st.success(f"✅ Dados salvos com sucesso!")
+        st.success(f"✅ Dados validados e salvos com sucesso!")
 
 ano_sel = st.sidebar.selectbox("Ano de Análise", [2026, 2025, 2027])
 
