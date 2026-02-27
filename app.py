@@ -5,32 +5,39 @@ from google.oauth2.service_account import Credentials
 import plotly.express as px
 import plotly.graph_objects as go
 import io 
+import time
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
 
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
-def get_creds():
+@st.cache_resource
+def get_gspread_client():
     try:
         if "gcp_service_account" not in st.secrets:
-            # Se cair aqui, o Streamlit não está lendo o bloco [gcp_service_account] nos Secrets
-            st.error("❌ Chave 'gcp_service_account' não encontrada nos Secrets do Streamlit. Verifique a formatação TOML.")
+            st.error("❌ Chave 'gcp_service_account' não encontrada nos Secrets.")
             return None
-        
         info = dict(st.secrets["gcp_service_account"])
-        # Mantendo compatibilidade caso a chave venha com \n literais ou quebras reais
         info["private_key"] = info["private_key"].replace("\\n", "\n")
-        
-        return Credentials.from_service_account_info(info, scopes=scope)
+        creds = Credentials.from_service_account_info(info, scopes=scope)
+        return gspread.authorize(creds)
     except Exception as e:
-        st.error(f"Erro ao processar credenciais: {e}")
+        st.error(f"Erro ao autorizar Google: {e}")
         return None
 
-creds = get_creds()
-if not creds: st.stop()
-client = gspread.authorize(creds)
-spreadsheet = client.open_by_key("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
+client = get_gspread_client()
+
+@st.cache_resource
+def abrir_planilha(key):
+    try:
+        return client.open_by_key(key)
+    except Exception as e:
+        st.error(f"Erro ao abrir a planilha (Limite de cota do Google): {e}")
+        return None
+
+spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
+if not spreadsheet: st.stop()
 
 # --- FUNÇÃO DE LIMPEZA DE CONTA ---
 def limpar_conta_blindado(valor, nivel):
@@ -68,11 +75,7 @@ with aba1:
         df.columns = [str(c).strip() for c in df.columns]
         
         if 'Histórico' in df.columns:
-            total_antes = len(df)
             df = df[~df['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
-            removidos = total_antes - len(df)
-            if removidos > 0:
-                st.info(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram desconsiderados.")
 
         df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
         
@@ -102,7 +105,12 @@ st.sidebar.header("Filtros de Análise")
 ano_sel = st.sidebar.selectbox("Ano", [2026, 2025, 2027])
 
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-abas_existentes = [w.title for w in spreadsheet.worksheets()]
+# Cache das abas existentes para não bater no Google toda vez que mudar um filtro
+@st.cache_data(ttl=300)
+def listar_abas_existentes():
+    return [w.title for w in spreadsheet.worksheets()]
+
+abas_existentes = listar_abas_existentes()
 meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
 meses_sel = st.sidebar.multiselect("Meses", meses_disponiveis, default=meses_disponiveis)
 
@@ -158,7 +166,6 @@ with aba2:
         if df_res is not None:
             df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
             cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
-            
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df_visual[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
@@ -169,7 +176,6 @@ with aba2:
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
-            
             st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
 
 with aba3:
@@ -189,7 +195,6 @@ with aba3:
             df_melted = df_chart.melt(id_vars=['Descrição'], value_vars=meses_exibir, var_name='Mês', value_name='Valor')
             fig = px.bar(df_melted, x='Mês', y=df_melted['Valor'].abs(), color='Descrição', barmode='group',
                          color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'}, text_auto='.2s')
-            
             df_lucro_line = df_ind[df_ind['Nivel'] == 1].melt(value_vars=meses_exibir, var_name='Mês', value_name='Lucro')
             fig.add_trace(go.Scatter(x=df_lucro_line['Mês'], y=df_lucro_line['Lucro'], name='LUCRO LÍQUIDO', line=dict(color='#1e40af', width=3)))
             st.plotly_chart(fig, use_container_width=True)
