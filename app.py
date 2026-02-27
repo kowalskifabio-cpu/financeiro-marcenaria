@@ -99,14 +99,12 @@ meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existent
 
 meses_sel = st.sidebar.multiselect("Meses", meses_disponiveis, default=meses_disponiveis)
 
-# Função para buscar todos os centros de CUSTO (Coluna O)
 @st.cache_data(ttl=600)
 def obter_centros_custo(ano, meses):
     centros = set()
     for m in meses:
         try:
             df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
-            # Mudança aqui: apontando para 'Centro de Custo' (Coluna O)
             if 'Centro de Custo' in df_m.columns:
                 centros.update(df_m['Centro de Custo'].astype(str).unique())
         except: pass
@@ -114,6 +112,9 @@ def obter_centros_custo(ano, meses):
 
 lista_cc = obter_centros_custo(ano_sel, meses_disponiveis)
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
+
+# NOVO FILTRO DE NÍVEL
+niveis_sel = st.sidebar.multiselect("Níveis de Conta", [1, 2, 3, 4], default=[1, 2, 3, 4])
 
 def processar_bi(ano, meses, filtros_cc):
     if not meses: return None, []
@@ -127,7 +128,6 @@ def processar_bi(ano, meses, filtros_cc):
         df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
         df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
         
-        # Ajuste no Filtro: Centro de Custo em vez de Resultado
         if "Todos" not in filtros_cc and filtros_cc:
             if 'Centro de Custo' in df_m.columns:
                 df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
@@ -152,13 +152,16 @@ def processar_bi(ano, meses, filtros_cc):
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     if st.button("📊 Gerar Relatório Filtrado"):
-        with st.spinner("Analisando Centros de Custo..."):
+        with st.spinner("Processando níveis e filtros..."):
             df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
             if df_res is not None:
+                # Aplicar filtro de nível na visualização
+                df_visualizar = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
+                
                 cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    df_res[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
+                    df_visualizar[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
                 st.download_button(label="📥 Exportar Excel", data=buffer.getvalue(), file_name=f"BI_Status_{ano_sel}.xlsx")
 
                 def style_rows(row):
@@ -166,7 +169,8 @@ with aba2:
                     if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                     if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                     return [''] * len(row)
-                st.dataframe(df_res[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
+                
+                st.dataframe(df_visualizar[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
 
 with aba3:
     st.subheader("Indicadores de Performance")
