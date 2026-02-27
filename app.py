@@ -105,7 +105,6 @@ st.sidebar.header("Filtros de Análise")
 ano_sel = st.sidebar.selectbox("Ano", [2026, 2025, 2027])
 
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-# Cache das abas existentes para não bater no Google toda vez que mudar um filtro
 @st.cache_data(ttl=300)
 def listar_abas_existentes():
     return [w.title for w in spreadsheet.worksheets()]
@@ -142,7 +141,7 @@ def processar_bi(ano, meses, filtros_cc):
         if "Todos" not in filtros_cc and filtros_cc:
             if 'Centro de Custo' in df_m.columns:
                 df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
-        
+            
         mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
         df_base[m] = 0.0
         df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
@@ -198,3 +197,18 @@ with aba3:
             df_lucro_line = df_ind[df_ind['Nivel'] == 1].melt(value_vars=meses_exibir, var_name='Mês', value_name='Lucro')
             fig.add_trace(go.Scatter(x=df_lucro_line['Mês'], y=df_lucro_line['Lucro'], name='LUCRO LÍQUIDO', line=dict(color='#1e40af', width=3)))
             st.plotly_chart(fig, use_container_width=True)
+
+            st.divider()
+            
+            # --- NOVA SEÇÃO: TOP GASTOS NÍVEL 3 E 4 ---
+            col_top3, col_top4 = st.columns(2)
+            
+            with col_top3:
+                st.write("### 📉 Maiores Grupos (Nível 3)")
+                top3 = df_ind[(df_ind['Nivel'] == 3) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO')
+                st.table(top3[['Conta', 'Descrição', 'ACUMULADO']].head(10).style.format({'ACUMULADO': formatar_moeda_br}))
+
+            with col_top4:
+                st.write("### 🔍 Maiores Detalhes (Nível 4)")
+                top4 = df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO')
+                st.table(top4[['Conta', 'Descrição', 'ACUMULADO']].head(10).style.format({'ACUMULADO': formatar_moeda_br}))
