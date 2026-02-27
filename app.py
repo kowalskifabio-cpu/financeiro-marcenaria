@@ -59,8 +59,21 @@ with aba1:
     if arq and st.button("🚀 Salvar Período"):
         df = pd.read_excel(arq)
         df.columns = [str(c).strip() for c in df.columns]
+        
+        # --- MELHORIA: FILTRAGEM DE HISTÓRICO ---
+        # Removemos linhas que contenham "baixa vinculo" no Histórico (independente de maiúscula/minúscula)
+        if 'Histórico' in df.columns:
+            total_antes = len(df)
+            df = df[~df['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
+            removidos = total_antes - len(df)
+            if removidos > 0:
+                st.info(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram desconsiderados.")
+
         df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
+        
+        # Regra P/R Soberana: P = Negativo, R = Positivo
         df['Valor_Final'] = df.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
+        
         nome_aba = f"{m_ref}_{a_ref}"
         try:
             ws = spreadsheet.worksheet(nome_aba)
@@ -68,7 +81,7 @@ with aba1:
         except:
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
         ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
-        st.success(f"✅ Dados salvos!")
+        st.success(f"✅ Dados salvos com sucesso!")
 
 ano_sel = st.sidebar.selectbox("Ano de Análise", [2026, 2025, 2027])
 
@@ -105,7 +118,6 @@ def processar_bi(ano):
     return df_base, meses_exibir
 
 with aba2:
-    # --- AJUSTE CSS: BARRA DE ROLAGEM NO TOPO ---
     st.markdown("""
         <style>
             .stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); }
@@ -117,7 +129,6 @@ with aba2:
         with st.spinner("Somando tudo..."):
             df_res, meses = processar_bi(ano_sel)
             if df_res is not None:
-                # --- FUNÇÃO DE EXPORTAÇÃO ---
                 cols_export = ['Nivel', 'Conta', 'Descrição'] + meses + ['MÉDIA', 'ACUMULADO']
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
