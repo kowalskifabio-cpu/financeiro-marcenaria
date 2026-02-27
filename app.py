@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.express as px
+import plotly.graph_objects as go  # Essencial para a linha de lucro e evitar erros
 import io 
 
 # --- CONFIGURAÇÃO ---
@@ -112,8 +113,6 @@ def obter_centros_custo(ano, meses):
 
 lista_cc = obter_centros_custo(ano_sel, meses_disponiveis)
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
-
-# NOVO FILTRO DE NÍVEL
 niveis_sel = st.sidebar.multiselect("Níveis de Conta", [1, 2, 3, 4], default=[1, 2, 3, 4])
 
 def processar_bi(ano, meses, filtros_cc):
@@ -152,17 +151,17 @@ def processar_bi(ano, meses, filtros_cc):
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     if st.button("📊 Gerar Relatório Filtrado"):
-        with st.spinner("Processando níveis e filtros..."):
+        with st.spinner("Filtrando e processando..."):
             df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
             if df_res is not None:
-                # Aplicar filtro de nível na visualização
                 df_visualizar = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
-                
                 cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
+                
+                # Exportação Excel
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     df_visualizar[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
-                st.download_button(label="📥 Exportar Excel", data=buffer.getvalue(), file_name=f"BI_Status_{ano_sel}.xlsx")
+                st.download_button(label="📥 Exportar Excel", data=buffer.getvalue(), file_name=f"BI_Marcenaria_{ano_sel}.xlsx")
 
                 def style_rows(row):
                     if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
@@ -177,15 +176,27 @@ with aba3:
     if st.button("📈 Atualizar Dashboard"):
         df_ind, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_ind is not None:
-            receita = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
-            despesa = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
-            lucro = receita + despesa
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Faturamento", formatar_moeda_br(receita))
-            c2.metric("Despesa", formatar_moeda_br(despesa))
-            c3.metric("Lucro Líquido", formatar_moeda_br(lucro), delta=f"{(lucro/receita*100):.1f}%" if receita > 0 else "0%")
+            rec = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
+            desp = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
+            lucro = rec + desp
             
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Faturamento", formatar_moeda_br(rec))
+            c2.metric("Despesa", formatar_moeda_br(desp))
+            c3.metric("Lucro Líquido", formatar_moeda_br(lucro), delta=f"{(lucro/rec*100):.1f}%" if rec > 0 else "0%")
+            
+            # Gráfico de Barras Agrupadas com Linha de Lucro
             df_chart = df_ind[(df_ind['Nivel'] == 2) & (df_ind['Conta'].isin(['01', '02']))].copy()
             df_melted = df_chart.melt(id_vars=['Descrição'], value_vars=meses_exibir, var_name='Mês', value_name='Valor')
-            fig = px.bar(df_melted, x='Mês', y=df_melted['Valor'].abs(), color='Descrição', barmode='group', color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'})
+            
+            fig = px.bar(df_melted, x='Mês', y=df_melted['Valor'].abs(), color='Descrição', barmode='group',
+                         color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'}, text_auto='.2s')
+            
+            df_lucro_line = df_ind[df_ind['Nivel'] == 1].melt(value_vars=meses_exibir, var_name='Mês', value_name='Lucro')
+            fig.add_trace(go.Scatter(x=df_lucro_line['Mês'], y=df_lucro_line['Lucro'], name='LUCRO LÍQUIDO', line=dict(color='#1e40af', width=3)))
+            
             st.plotly_chart(fig, use_container_width=True)
+            
+            st.write("### Top 10 Despesas")
+            top_d = df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO')
+            st.table(top_d[['Conta', 'Descrição', 'ACUMULADO']].head(10).style.format({'ACUMULADO': formatar_moeda_br}))
