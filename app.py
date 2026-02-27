@@ -39,7 +39,7 @@ def abrir_planilha(key):
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
 
-# --- FUNÇÃO DE LIMPEZA DE CONTA (MANTER O .10 E EVITAR O 2.1) ---
+# --- FUNÇÃO DE LIMPEZA DE CONTA (PRESERVAÇÃO DO .10) ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
     if '/' in v or '-' in v: 
@@ -49,14 +49,15 @@ def limpar_conta_blindado(valor, nivel):
             ano_corrigido = "001" if "2001" in partes[2] else partes[2][-3:]
             return f"{partes[1].zfill(2)}.{partes[0].zfill(2)}.{ano_corrigido}"
     
-    # Tratamento específico para a conta 02.10 não virar 2.1
+    # Bloqueio contra encurtamento de 02.10 para 2.1
     if nivel == 3 and '.' in v:
         p = v.split('.')
-        # Se após o ponto tiver apenas um dígito (ex: 2.1), força o 10
-        if len(p[1]) == 1:
-            v = f"{p[0].zfill(2)}.{p[1]}0"
+        p0 = p[0].zfill(2)
+        p1 = p[1]
+        if len(p1) == 1:
+            v = f"{p0}.{p1}0"
         else:
-            v = f"{p[0].zfill(2)}.{p[1]}"
+            v = f"{p0}.{p1}"
             
     if nivel in [2, 3] and not v.startswith('0') and (len(v) == 1 or ('.' in v and len(v.split('.')[0]) == 1)):
         v = '0' + v
@@ -111,8 +112,8 @@ with aba1:
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
 ano_sel = st.sidebar.selectbox("Ano", [2026, 2025, 2027])
-
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+
 @st.cache_data(ttl=300)
 def listar_abas_existentes():
     return [w.title for w in spreadsheet.worksheets()]
@@ -136,7 +137,7 @@ lista_cc = obter_centros_custo(ano_sel, meses_disponiveis)
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
 
-# --- PROCESSAMENTO BLINDADO (GARANTE AS 237 LINHAS DA BASE) ---
+# --- PROCESSAMENTO (GARANTE AS 237 LINHAS DA ABA BASE) ---
 def processar_bi(ano, meses, filtros_cc):
     if not meses: return None, []
     df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
@@ -155,12 +156,11 @@ def processar_bi(ano, meses, filtros_cc):
         df_base[m] = 0.0
         df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
 
-        # Soma hierárquica respeitando a estrutura texto
+        # Soma hierárquica rigorosa
         for n in [3, 2]:
             for idx, row in df_base[df_base['Nivel'] == n].iterrows():
-                pref = str(row['Conta']).strip()
-                # Adiciona ponto no prefixo para garantir que 2.1 não some 2.11
-                total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref + "."))][m].sum()
+                pref = str(row['Conta']).strip() + "."
+                total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][m].sum()
                 df_base.at[idx, m] = total
         
         for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
@@ -175,11 +175,12 @@ def gerar_dados_pizza(df, nivel, limite=10):
     dados = df[(df['Nivel'] == nivel) & (df['ACUMULADO'] < 0)].copy()
     dados['Abs_Acumulado'] = dados['ACUMULADO'].abs()
     dados = dados.sort_values(by='Abs_Acumulado', ascending=False)
+    
     if len(dados) > limite:
         principais = dados.head(limite).copy()
         outros_val = dados.iloc[limite:]['Abs_Acumulado'].sum()
         outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
-        return pd.concat([principais,裝outros_df], ignore_index=True)
+        return pd.concat([principais, outros_df], ignore_index=True)
     return dados
 
 with aba2:
@@ -189,11 +190,6 @@ with aba2:
         if df_res is not None:
             df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
             cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df_visual[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
-            st.download_button(label="📥 Exportar Excel", data=buffer.getvalue(), file_name=f"BI_Status_{ano_sel}.xlsx")
-
             def style_rows(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
@@ -228,6 +224,7 @@ with aba3:
                 st.write("### 📉 Maiores Grupos (Nível 3)")
                 df_pizza3 = gerar_dados_pizza(df_ind, 3)
                 fig_p3 = px.pie(df_pizza3, values='Abs_Acumulado', names='Descrição', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
+                fig_p3.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig_p3, use_container_width=True)
                 st.table(df_ind[(df_ind['Nivel'] == 3) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
 
@@ -235,5 +232,6 @@ with aba3:
                 st.write("### 🔍 Maiores Detalhes (Nível 4)")
                 df_pizza4 = gerar_dados_pizza(df_ind, 4)
                 fig_p4 = px.pie(df_pizza4, values='Abs_Acumulado', names='Descrição', hole=0.4, color_discrete_sequence=px.colors.sequential.YlOrRd)
+                fig_p4.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig_p4, use_container_width=True)
                 st.table(df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
