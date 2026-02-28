@@ -1,4 +1,4 @@
- import streamlit as st
+import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
@@ -73,7 +73,6 @@ def formatar_moeda_br(val):
 
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
-# ABA COMPARATIVO ADICIONADA
 aba1, aba2, aba3, aba4 = st.tabs(["📥 Carga de Dados", "📈 Relatório Consolidado", "🎯 Indicadores", "📊 Comparativo"])
 
 with aba1:
@@ -113,7 +112,7 @@ with aba1:
         contas_faltantes = contas_carga - contas_base
         
         if contas_faltantes:
-            st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base' antes de seguir:")
+            st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base' antes de seguir.")
             st.write(list(contas_faltantes))
             st.stop()
 
@@ -130,7 +129,6 @@ with aba1:
 
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
-# Alterado para multiselect para permitir o comparativo
 anos_sel = st.sidebar.multiselect("Anos", [2026, 2025, 2027], default=[2025])
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
@@ -143,7 +141,6 @@ def listar_abas_existentes():
         return [w.title for w in spreadsheet.worksheets()]
 
 abas_existentes = listar_abas_existentes()
-# Meses disponíveis baseados no primeiro ano selecionado para manter compatibilidade
 ano_ref_abas = anos_sel[0] if anos_sel else 2025
 meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_ref_abas}" in abas_existentes]
 meses_sel = st.sidebar.multiselect("Meses", meses_disponiveis, default=meses_disponiveis)
@@ -168,13 +165,12 @@ niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4
 
 # --- PROCESSAMENTO (237 LINHAS GARANTIDAS) ---
 def processar_bi(anos, meses, filtros_cc):
-    if not meses or not anos: return None, []
+    if not meses or not anos: return None
     df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
     df_base.columns = [str(c).strip() for c in df_base.columns]
     df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
     df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
 
-    # Dicionário para armazenar acumulados por ano
     for ano in anos:
         df_base[f'ACUM_{ano}'] = 0.0
         for m in meses:
@@ -186,7 +182,6 @@ def processar_bi(anos, meses, filtros_cc):
                     df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
                 
                 mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-                
                 col_mes = f"temp_{m}_{ano}"
                 df_base[col_mes] = 0.0
                 df_base.loc[df_base['Nivel'] == 4, col_mes] = df_base['Conta'].map(mapeamento).fillna(0)
@@ -202,7 +197,6 @@ def processar_bi(anos, meses, filtros_cc):
                 
                 df_base[f'ACUM_{ano}'] += df_base[col_mes]
                 df_base.drop(columns=[col_mes], inplace=True)
-
     return df_base
 
 def gerar_dados_pizza(df, nivel, col_ref, limite=10):
@@ -222,10 +216,8 @@ with aba2:
         df_res = processar_bi(anos_sel, meses_sel, cc_sel)
         if df_res is not None:
             df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
-            # Mostra colunas ACUM de cada ano selecionado
             cols_acum = [f"ACUM_{a}" for a in anos_sel]
             cols_exibir = ['Nivel', 'Conta', 'Descrição'] + cols_acum
-            
             def style_rows(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
@@ -238,10 +230,8 @@ with aba3:
     if st.button("📈 Ver Dashboard"):
         df_ind = processar_bi(anos_sel, meses_sel, cc_sel)
         if df_ind is not None:
-            # Dashboard focado no primeiro ano selecionado
             ano_dash = anos_sel[0]
             col_dash = f"ACUM_{ano_dash}"
-            
             rec = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)][col_dash].sum()
             desp = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)][col_dash].sum()
             lucro = rec + desp
@@ -249,37 +239,30 @@ with aba3:
             c1.metric(f"Faturamento {ano_dash}", formatar_moeda_br(rec))
             c2.metric(f"Despesa {ano_dash}", formatar_moeda_br(desp))
             c3.metric(f"Lucro Líquido {ano_dash}", formatar_moeda_br(lucro), delta=f"{(lucro/rec*100):.1f}%" if rec > 0 else "0%")
-            
             st.divider()
             col_top3, col_top4 = st.columns(2)
             with col_top3:
-                st.write(f"### 📉 Maiores Grupos Nível 3 ({ano_dash})")
+                st.write(f"### 📉 Nível 3 ({ano_dash})")
                 df_p3 = gerar_dados_pizza(df_ind, 3, col_dash)
                 st.plotly_chart(px.pie(df_p3, values='Abs_Acumulado', names='Descrição', hole=0.4), use_container_width=True)
             with col_top4:
-                st.write(f"### 🔍 Maiores Detalhes Nível 4 ({ano_dash})")
+                st.write(f"### 🔍 Nível 4 ({ano_dash})")
                 df_p4 = gerar_dados_pizza(df_ind, 4, col_dash)
                 st.plotly_chart(px.pie(df_p4, values='Abs_Acumulado', names='Descrição', hole=0.4), use_container_width=True)
 
 with aba4:
-    st.subheader("📊 Análise Horizontal (Comparativo)")
+    st.subheader("📊 Comparativo Horizontal")
     if len(anos_sel) < 2:
-        st.warning("⚠️ Selecione pelo menos dois anos na barra lateral para comparar.")
+        st.warning("⚠️ Selecione pelo menos dois anos para comparar.")
     else:
         if st.button("🔄 Calcular Comparativo"):
             df_comp = processar_bi(anos_sel, meses_sel, cc_sel)
             if df_comp is not None:
                 ano1, ano2 = anos_sel[0], anos_sel[1]
                 c1, c2 = f"ACUM_{ano1}", f"ACUM_{ano2}"
-                
                 df_comp['Diferença'] = df_comp[c2] - df_comp[c1]
                 df_comp['Dif %'] = df_comp.apply(lambda x: (x['Diferença'] / abs(x[c1]) * 100) if x[c1] != 0 else 0, axis=1)
-                
                 cols_comp = ['Nivel', 'Conta', 'Descrição', c1, c2, 'Diferença', 'Dif %']
-                
                 def color_dif(val):
-                    color = 'red' if val < 0 else 'green'
-                    return f'color: {color}'
-
-                st.markdown(f"**Comparativo Horizontal: {ano1} vs {ano2}**")
+                    return 'color: red' if val < 0 else 'color: green'
                 st.dataframe(df_comp[df_comp['Nivel'].isin(niveis_sel)][cols_comp].style.applymap(color_dif, subset=['Diferença', 'Dif %']).format({c1: formatar_moeda_br, c2: formatar_moeda_br, 'Diferença': formatar_moeda_br, 'Dif %': '{:.1f}%'}), use_container_width=True, height=800)
