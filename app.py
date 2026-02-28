@@ -35,7 +35,7 @@ def abrir_planilha(key):
     try:
         return client.open_by_key(key)
     except Exception as e:
-        st.error(f"Erro ao abrir a planilha (Limite de cota do Google): {e}")
+        st.error(f"Erro ao abrir a planilha (Cota do Google): {e}")
         return None
 
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
@@ -105,14 +105,13 @@ with aba1:
                 st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
 
         df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
-        
         df_base_check = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
         contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
         contas_carga = set(df['Conta_ID'].unique())
         contas_faltantes = contas_carga - contas_base
         
         if contas_faltantes:
-            st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base' antes de seguir.")
+            st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base'.")
             st.write(list(contas_faltantes))
             st.stop()
 
@@ -129,21 +128,18 @@ with aba1:
 
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
-anos_sel = st.sidebar.multiselect("Anos", [2026, 2025, 2027], default=[2025])
+anos_disponiveis = [2026, 2025, 2027]
+anos_sel = st.sidebar.multiselect("Anos", anos_disponiveis, default=[2025])
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
 @st.cache_data(ttl=600)
 def listar_abas_existentes():
     try:
         return [w.title for w in spreadsheet.worksheets()]
-    except:
-        time.sleep(2)
-        return [w.title for w in spreadsheet.worksheets()]
+    except: return []
 
 abas_existentes = listar_abas_existentes()
-ano_ref_abas = anos_sel[0] if anos_sel else 2025
-meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_ref_abas}" in abas_existentes]
-meses_sel = st.sidebar.multiselect("Meses", meses_disponiveis, default=meses_disponiveis)
+meses_sel = st.sidebar.multiselect("Meses", ordem_meses, default=ordem_meses)
 
 @st.cache_data(ttl=600)
 def obter_centros_custo(anos_tuple, meses_tuple):
@@ -163,106 +159,85 @@ lista_cc = obter_centros_custo(tuple(anos_sel), tuple(meses_sel))
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
 
-# --- PROCESSAMENTO (237 LINHAS GARANTIDAS) ---
+# --- PROCESSAMENTO (GARANTE TODAS AS LINHAS DA BASE) ---
 def processar_bi(anos, meses, filtros_cc):
-    if not meses or not anos: return None
+    if not meses or not anos: return None, []
     df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
     df_base.columns = [str(c).strip() for c in df_base.columns]
     df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
     df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
 
+    # Criamos colunas para cada mês individual
+    cols_meses_geradas = []
     for ano in anos:
-        df_base[f'ACUM_{ano}'] = 0.0
         for m in meses:
             aba = f"{m}_{ano}"
             if aba in abas_existentes:
+                col_nome = f"{m}_{ano}"
+                cols_meses_geradas.append(col_nome)
+                df_base[col_nome] = 0.0
+                
                 df_m = pd.DataFrame(spreadsheet.worksheet(aba).get_all_records())
                 df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
                 if "Todos" not in filtros_cc and filtros_cc:
                     df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
                 
                 mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-                col_mes = f"temp_{m}_{ano}"
-                df_base[col_mes] = 0.0
-                df_base.loc[df_base['Nivel'] == 4, col_mes] = df_base['Conta'].map(mapeamento).fillna(0)
+                df_base.loc[df_base['Nivel'] == 4, col_nome] = df_base['Conta'].map(mapeamento).fillna(0)
 
+                # Soma Hierárquica
                 for n in [3, 2]:
                     for idx, row in df_base[df_base['Nivel'] == n].iterrows():
                         pref = str(row['Conta']).strip() + "."
-                        total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][col_mes].sum()
-                        df_base.at[idx, col_mes] = total
-                
+                        total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][col_nome].sum()
+                        df_base.at[idx, col_nome] = total
                 for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
-                    df_base.at[idx, col_mes] = df_base[df_base['Nivel'] == 2][col_mes].sum()
-                
-                df_base[f'ACUM_{ano}'] += df_base[col_mes]
-                df_base.drop(columns=[col_mes], inplace=True)
-    return df_base
+                    df_base.at[idx, col_nome] = df_base[df_base['Nivel'] == 2][col_nome].sum()
 
-def gerar_dados_pizza(df, nivel, col_ref, limite=10):
-    dados = df[(df['Nivel'] == nivel) & (df[col_ref] < 0)].copy()
-    dados['Abs_Acumulado'] = dados[col_ref].abs()
-    dados = dados.sort_values(by='Abs_Acumulado', ascending=False)
-    if len(dados) > limite:
-        principais = dados.head(limite).copy()
-        outros_val = dados.iloc[limite:]['Abs_Acumulado'].sum()
-        outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
-        return pd.concat([principais, outros_df], ignore_index=True)
-    return dados
+    df_base['ACUMULADO'] = df_base[cols_meses_geradas].sum(axis=1)
+    return df_base, cols_meses_geradas
 
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
-    if st.button("📊 Gerar Relatório Filtrado"):
-        df_res = processar_bi(anos_sel, meses_sel, cc_sel)
+    if st.button("📈 Gerar Relatório Consolidado"):
+        df_res, colunas_mensais = processar_bi(anos_sel, meses_sel, cc_sel)
         if df_res is not None:
             df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
-            cols_acum = [f"ACUM_{a}" for a in anos_sel]
-            cols_exibir = ['Nivel', 'Conta', 'Descrição'] + cols_acum
+            cols_exibir = ['Nivel', 'Conta', 'Descrição'] + colunas_mensais + ['ACUMULADO']
             def style_rows(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
-            st.dataframe(df_visual[cols_exibir].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_acum}), use_container_width=True, height=800)
+            st.dataframe(df_visual[cols_exibir].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in colunas_mensais + ['ACUMULADO']}), use_container_width=True, height=800)
 
 with aba3:
     st.subheader("Indicadores")
-    if st.button("📈 Ver Dashboard"):
-        df_ind = processar_bi(anos_sel, meses_sel, cc_sel)
+    if st.button("🚀 Carregar Dashboard"):
+        df_ind, _ = processar_bi(anos_sel, meses_sel, cc_sel)
         if df_ind is not None:
-            ano_dash = anos_sel[0]
-            col_dash = f"ACUM_{ano_dash}"
-            rec = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)][col_dash].sum()
-            desp = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)][col_dash].sum()
+            rec = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
+            desp = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
             lucro = rec + desp
             c1, c2, c3 = st.columns(3)
-            c1.metric(f"Faturamento {ano_dash}", formatar_moeda_br(rec))
-            c2.metric(f"Despesa {ano_dash}", formatar_moeda_br(desp))
-            c3.metric(f"Lucro Líquido {ano_dash}", formatar_moeda_br(lucro), delta=f"{(lucro/rec*100):.1f}%" if rec > 0 else "0%")
-            st.divider()
-            col_top3, col_top4 = st.columns(2)
-            with col_top3:
-                st.write(f"### 📉 Nível 3 ({ano_dash})")
-                df_p3 = gerar_dados_pizza(df_ind, 3, col_dash)
-                st.plotly_chart(px.pie(df_p3, values='Abs_Acumulado', names='Descrição', hole=0.4), use_container_width=True)
-            with col_top4:
-                st.write(f"### 🔍 Nível 4 ({ano_dash})")
-                df_p4 = gerar_dados_pizza(df_ind, 4, col_dash)
-                st.plotly_chart(px.pie(df_p4, values='Abs_Acumulado', names='Descrição', hole=0.4), use_container_width=True)
+            c1.metric("Faturamento", formatar_moeda_br(rec))
+            c2.metric("Despesa", formatar_moeda_br(desp))
+            c3.metric("Lucro Líquido", formatar_moeda_br(lucro), delta=f"{(lucro/rec*100):.1f}%" if rec > 0 else "0%")
 
 with aba4:
     st.subheader("📊 Comparativo Horizontal")
-    if len(anos_sel) < 2:
-        st.warning("⚠️ Selecione pelo menos dois anos para comparar.")
+    if len(anos_sel) < 2: st.warning("Selecione dois anos na barra lateral.")
     else:
         if st.button("🔄 Calcular Comparativo"):
-            df_comp = processar_bi(anos_sel, meses_sel, cc_sel)
+            df_comp, _ = processar_bi(anos_sel, meses_sel, cc_sel)
             if df_comp is not None:
                 ano1, ano2 = anos_sel[0], anos_sel[1]
-                c1, c2 = f"ACUM_{ano1}", f"ACUM_{ano2}"
-                df_comp['Diferença'] = df_comp[c2] - df_comp[c1]
-                df_comp['Dif %'] = df_comp.apply(lambda x: (x['Diferença'] / abs(x[c1]) * 100) if x[c1] != 0 else 0, axis=1)
-                cols_comp = ['Nivel', 'Conta', 'Descrição', c1, c2, 'Diferença', 'Dif %']
-                def color_dif(val):
-                    return 'color: red' if val < 0 else 'color: green'
-                st.dataframe(df_comp[df_comp['Nivel'].isin(niveis_sel)][cols_comp].style.applymap(color_dif, subset=['Diferença', 'Dif %']).format({c1: formatar_moeda_br, c2: formatar_moeda_br, 'Diferença': formatar_moeda_br, 'Dif %': '{:.1f}%'}), use_container_width=True, height=800)
+                # Aqui somamos os meses de cada ano para o comparativo
+                cols_ano1 = [c for c in df_comp.columns if f"_{ano1}" in c and not c.startswith('temp')]
+                cols_ano2 = [c for c in df_comp.columns if f"_{ano2}" in c and not c.startswith('temp')]
+                df_comp[f'TOTAL_{ano1}'] = df_comp[cols_ano1].sum(axis=1)
+                df_comp[f'TOTAL_{ano2}'] = df_comp[cols_ano2].sum(axis=1)
+                df_comp['Diferença'] = df_comp[f'TOTAL_{ano2}'] - df_comp[f'TOTAL_{ano1}']
+                df_comp['Dif %'] = df_comp.apply(lambda x: (x['Diferença'] / abs(x[f'TOTAL_{ano1}']) * 100) if x[f'TOTAL_{ano1}'] != 0 else 0, axis=1)
+                cols_c = ['Nivel', 'Conta', 'Descrição', f'TOTAL_{ano1}', f'TOTAL_{ano2}', 'Diferença', 'Dif %']
+                st.dataframe(df_comp[df_comp['Nivel'].isin(niveis_sel)][cols_c].style.format({f'TOTAL_{ano1}': formatar_moeda_br, f'TOTAL_{ano2}': formatar_moeda_br, 'Diferença': formatar_moeda_br, 'Dif %': '{:.1f}%'}), use_container_width=True, height=800)
