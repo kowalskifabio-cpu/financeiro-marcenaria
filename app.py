@@ -420,6 +420,7 @@ with aba5:
             def style_comp(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
+                if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
 
             st.dataframe(df_comp_vis[cols_comp].style.apply(style_comp, axis=1).format({
