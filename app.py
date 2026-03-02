@@ -78,20 +78,15 @@ def formatar_pct(val):
 # --- FUNÇÃO DE FILTRO DE LINHAS ZERADAS (HIERARQUIA REVERSA) ---
 def filtrar_linhas_zeradas(df, colunas_valores):
     df = df.copy()
-    # Identifica Nível 4 que está zerado em todas as colunas de valor
     df['zerado'] = df[colunas_valores].abs().sum(axis=1) == 0
-    
-    # Marcar Nível 4 para remoção
     remover_indices = set(df[(df['Nivel'] == 4) & (df['zerado'])].index)
     
-    # Regra para Nível 3: Só remove se todos os seus filhos Nível 4 estiverem zerados
     for idx, row in df[df['Nivel'] == 3].iterrows():
         prefixo = str(row['Conta']).strip() + "."
         filhos = df[(df['Nivel'] == 4) & (df['Conta'].str.startswith(prefixo))]
         if not filhos.empty and filhos['zerado'].all():
             remover_indices.add(idx)
             
-    # Regra para Nível 2: Só remove se todos os seus filhos Nível 3 estiverem zerados
     for idx, row in df[df['Nivel'] == 2].iterrows():
         prefixo = str(row['Conta']).strip() + "."
         filhos_n3 = df[(df['Nivel'] == 3) & (df['Conta'].str.startswith(prefixo))]
@@ -343,8 +338,26 @@ with aba4:
                 'Resultado': x['Valor_Final'].sum()
             })).reset_index()
             res_cc = res_cc.sort_values(by='Resultado')
-            st.dataframe(res_cc.style.format({'Receitas': formatar_moeda_br, 'Despesas': formatar_moeda_br, 'Resultado': formatar_moeda_br}).applymap(lambda v: 'color: red' if v < 0 else 'color: green', subset=['Resultado']), use_container_width=True)
-            fig_cc = px.bar(res_cc, x='Centro de Custo', y=['Receitas', 'Despesas'], barmode='group', color_discrete_map={'Receitas': '#22c55e', 'Despesas': '#ef4444'})
+            
+            # --- LINHA DE TOTALIZADOR ---
+            total_receitas = res_cc['Receitas'].sum()
+            total_despesas = res_cc['Despesas'].sum()
+            total_resultado = res_cc['Resultado'].sum()
+            linha_total = pd.DataFrame({'Centro de Custo': ['TOTAL CONSOLIDADO'], 'Receitas': [total_receitas], 'Despesas': [total_despesas], 'Resultado': [total_resultado]})
+            res_cc = pd.concat([linha_total, res_cc], ignore_index=True)
+
+            # --- EXPORTAÇÃO CENTRO DE CUSTO ---
+            buffer_cc = io.BytesIO()
+            with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer:
+                res_cc.to_excel(writer, index=False, sheet_name='Obras')
+            st.download_button(label="📥 Exportar Obras (Excel)", data=buffer_cc.getvalue(), file_name=f"Analise_Obras.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            def style_cc(row):
+                if row['Centro de Custo'] == 'TOTAL CONSOLIDADO': return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
+                return [''] * len(row)
+
+            st.dataframe(res_cc.style.apply(style_cc, axis=1).format({'Receitas': formatar_moeda_br, 'Despesas': formatar_moeda_br, 'Resultado': formatar_moeda_br}).applymap(lambda v: 'color: red' if v < 0 else 'color: green', subset=['Resultado']), use_container_width=True)
+            fig_cc = px.bar(res_cc[res_cc['Centro de Custo'] != 'TOTAL CONSOLIDADO'], x='Centro de Custo', y=['Receitas', 'Despesas'], barmode='group', color_discrete_map={'Receitas': '#22c55e', 'Despesas': '#ef4444'})
             st.plotly_chart(fig_cc, use_container_width=True)
         else: st.warning("⚠️ Nenhuma aba encontrada para o período selecionado.")
 
@@ -391,10 +404,8 @@ with aba5:
 
             map_a = somar_periodo(anos_a, meses_a)
             map_b = somar_periodo(anos_b, meses_b)
-            
             df_base_comp['PERÍODO A'] = 0.0
             df_base_comp['PERÍODO B'] = 0.0
-            
             df_base_comp.loc[df_base_comp['Nivel'] == 4, 'PERÍODO A'] = df_base_comp['Conta'].map(map_a).fillna(0)
             df_base_comp.loc[df_base_comp['Nivel'] == 4, 'PERÍODO B'] = df_base_comp['Conta'].map(map_b).fillna(0)
             
@@ -417,13 +428,16 @@ with aba5:
             df_comp_vis = df_base_comp[df_base_comp['Nivel'].isin(niveis_sel)].copy()
             cols_comp = ['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']
             
+            # --- EXPORTAÇÃO COMPARATIVO ---
+            buffer_comp = io.BytesIO()
+            with pd.ExcelWriter(buffer_comp, engine='openpyxl') as writer:
+                df_comp_vis[cols_comp].to_excel(writer, index=False, sheet_name='Comparativo')
+            st.download_button(label="📥 Exportar Comparativo (Excel)", data=buffer_comp.getvalue(), file_name=f"Comparativo_Periodos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
             def style_comp(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
 
-            st.dataframe(df_comp_vis[cols_comp].style.apply(style_comp, axis=1).format({
-                'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 
-                'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct
-            }), use_container_width=True, height=700)
+            st.dataframe(df_comp_vis[cols_comp].style.apply(style_comp, axis=1).format({'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct}), use_container_width=True, height=700)
