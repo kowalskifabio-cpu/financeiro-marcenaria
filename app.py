@@ -218,13 +218,8 @@ with aba2:
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
-          
-         st.download_button(
-                label="📥 Exportar Relatório (Excel)",
-                data=buffer.getvalue(),
-                file_name=f"Relatorio_Financeiro_{ano_sel}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )   
+         
+         
          st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
  
 with aba3:
