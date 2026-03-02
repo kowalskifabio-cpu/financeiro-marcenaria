@@ -219,7 +219,7 @@ with aba2:
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
           
-     st.download_button(
+         st.download_button(
                 label="📥 Exportar Relatório (Excel)",
                 data=buffer.getvalue(),
                 file_name=f"Relatorio_Financeiro_{ano_sel}.xlsx",
