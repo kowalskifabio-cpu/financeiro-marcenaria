@@ -70,16 +70,20 @@ def formatar_moeda_br(val):
     valor_abs = abs(val)
     f = f"{valor_abs:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return f"({f})" if val < 0 else f
+
+def formatar_pct(val):
+    if not isinstance(val, (int, float)): return val
+    return f"{val:.1f}%"
  
 st.title("📊 Gestor Financeiro - Status Marcenaria")
  
-aba1, aba2, aba3, aba4 = st.tabs(["📥 Carga de Dados", "📈 Relatório Consolidado", "🎯 Indicadores", "🏢 Centros de Custo"])
+aba1, aba2, aba3, aba4, aba5 = st.tabs(["📥 Carga de Dados", "📈 Relatório Consolidado", "🎯 Indicadores", "🏢 Centros de Custo", "⚖️ Comparativo"])
  
 with aba1:
     col_m, col_a = st.columns(2)
     meses_lista = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
     with col_m: m_ref = st.selectbox("Mês", meses_lista)
-    with col_a: a_ref = st.selectbox("Ano", [2026, 2025, 2027])
+    with col_a: a_ref = st.selectbox("Ano", [2026, 2025, 2027, 2024])
     arq = st.file_uploader("Subir Excel do Sistema", type=["xlsx"])
     
     if arq and st.button("🚀 Salvar Período"):
@@ -128,7 +132,7 @@ with aba1:
  
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
-ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027], index=1)
+ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027, 2024], index=1)
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
  
 @st.cache_data(ttl=600) 
@@ -279,53 +283,111 @@ with aba3:
 
 with aba4:
     st.subheader("🏢 Análise Multi-Período por Centro de Custo")
-    
-    # Filtros locais para permitir cruzamento de anos
     col_ano_cc, col_mes_cc = st.columns(2)
     with col_ano_cc:
-        anos_disponiveis = sorted(list(set([t.split('_')[1] for t in abas_existentes if '_' in t])), reverse=True)
-        anos_cc = st.multiselect("Selecione os Anos para Obra", anos_disponiveis, default=anos_disponiveis[:1])
-    
+        anos_existentes_plan = sorted(list(set([t.split('_')[1] for t in abas_existentes if '_' in t])), reverse=True)
+        anos_cc = st.multiselect("Anos para Obra", anos_existentes_plan, default=anos_existentes_plan[:1], key="cc_ano")
     with col_mes_cc:
-        meses_cc = st.multiselect("Selecione os Meses para Obra", ordem_meses, default=ordem_meses)
+        meses_cc = st.multiselect("Meses para Obra", ordem_meses, default=ordem_meses, key="cc_mes")
     
     if st.button("📊 Processar Centros de Custo (Multi-Ano)"):
         lista_dfs_brutos = []
-        # Gera a lista de abas baseada nos múltiplos anos e meses selecionados
         abas_para_processar = [f"{m}_{a}" for a in anos_cc for m in meses_cc]
-        
         for aba_nome in abas_para_processar:
             if aba_nome in abas_existentes:
                 try:
                     df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
-                    if not df_m.empty:
-                        lista_dfs_brutos.append(df_m)
+                    if not df_m.empty: lista_dfs_brutos.append(df_m)
                 except: pass
         
         if lista_dfs_brutos:
             df_all = pd.concat(lista_dfs_brutos, ignore_index=True)
             df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
-            
-            # Aplica filtro de Centro de Custo se não for "Todos"
             if "Todos" not in cc_sel and cc_sel:
                 df_all = df_all[df_all['Centro de Custo'].isin(cc_sel)]
-            
             df_all['ID_Grupo'] = df_all['Conta_ID'].astype(str).str[:2]
             res_cc = df_all.groupby('Centro de Custo').apply(lambda x: pd.Series({
                 'Receitas': x[x['ID_Grupo'] == '01']['Valor_Final'].sum(),
                 'Despesas': x[x['ID_Grupo'] == '02']['Valor_Final'].sum(),
                 'Resultado': x['Valor_Final'].sum()
             })).reset_index()
-            
             res_cc = res_cc.sort_values(by='Resultado')
-            st.write(f"✅ Consolidação realizada sobre {len(lista_dfs_brutos)} períodos encontrados.")
-            st.dataframe(res_cc.style.format({
-                'Receitas': formatar_moeda_br, 'Despesas': formatar_moeda_br, 'Resultado': formatar_moeda_br
-            }).applymap(lambda v: 'color: red' if v < 0 else 'color: green', subset=['Resultado']), use_container_width=True)
-            
-            fig_cc = px.bar(res_cc, x='Centro de Custo', y=['Receitas', 'Despesas'], 
-                            title="Desempenho Consolidado (Multi-Ano)", barmode='group',
-                            color_discrete_map={'Receitas': '#22c55e', 'Despesas': '#ef4444'})
+            st.dataframe(res_cc.style.format({'Receitas': formatar_moeda_br, 'Despesas': formatar_moeda_br, 'Resultado': formatar_moeda_br}).applymap(lambda v: 'color: red' if v < 0 else 'color: green', subset=['Resultado']), use_container_width=True)
+            fig_cc = px.bar(res_cc, x='Centro de Custo', y=['Receitas', 'Despesas'], barmode='group', color_discrete_map={'Receitas': '#22c55e', 'Despesas': '#ef4444'})
             st.plotly_chart(fig_cc, use_container_width=True)
-        else: 
-            st.warning("⚠️ Nenhuma aba encontrada para a combinação de Anos e Meses selecionada.")
+        else: st.warning("⚠️ Nenhuma aba encontrada para o período selecionado.")
+
+with aba5:
+    st.subheader("⚖️ Comparativo de Períodos")
+    st.info("Compare dois blocos de períodos (ex: Mar/2024 a Jun/2024 vs Mar/2025 a Jun/2025)")
+    
+    c_p1, c_p2 = st.columns(2)
+    with c_p1:
+        st.write("**Período A (Base)**")
+        anos_a = st.multiselect("Anos A", anos_existentes_plan, key="ano_a")
+        meses_a = st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="mes_a")
+    with c_p2:
+        st.write("**Período B (Comparação)**")
+        anos_b = st.multiselect("Anos B", anos_existentes_plan, key="ano_b")
+        meses_b = st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mes_b")
+
+    if st.button("🔄 Executar Comparação"):
+        if not anos_a or not anos_b:
+            st.error("Selecione pelo menos um ano para cada período.")
+        else:
+            df_base_comp = carregar_aba_base().copy()
+            df_base_comp.columns = [str(c).strip() for c in df_base_comp.columns]
+            df_base_comp = df_base_comp.rename(columns={df_base_comp.columns[0]: 'Conta', df_base_comp.columns[1]: 'Descrição', df_base_comp.columns[2]: 'Nivel'})
+            df_base_comp['Conta'] = df_base_comp.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
+            
+            def somar_periodo(anos, meses):
+                total_mapeamento = {}
+                abas = [f"{m}_{a}" for a in anos for m in meses]
+                for aba in abas:
+                    if aba in abas_existentes:
+                        try:
+                            df_m = pd.DataFrame(spreadsheet.worksheet(aba).get_all_records())
+                            if not df_m.empty:
+                                df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+                                if "Todos" not in cc_sel and cc_sel:
+                                    df_m = df_m[df_m['Centro de Custo'].isin(cc_sel)]
+                                parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+                                for c_id, val in parciais.items():
+                                    total_mapeamento[c_id] = total_mapeamento.get(c_id, 0) + val
+                        except: pass
+                return total_mapeamento
+
+            map_a = somar_periodo(anos_a, meses_a)
+            map_b = somar_periodo(anos_b, meses_b)
+            
+            df_base_comp['PERÍODO A'] = 0.0
+            df_base_comp['PERÍODO B'] = 0.0
+            
+            df_base_comp.loc[df_base_comp['Nivel'] == 4, 'PERÍODO A'] = df_base_comp['Conta'].map(map_a).fillna(0)
+            df_base_comp.loc[df_base_comp['Nivel'] == 4, 'PERÍODO B'] = df_base_comp['Conta'].map(map_b).fillna(0)
+            
+            for n in [3, 2]:
+                for idx, row in df_base_comp[df_base_comp['Nivel'] == n].iterrows():
+                    pref = str(row['Conta']).strip() + "."
+                    df_base_comp.at[idx, 'PERÍODO A'] = df_base_comp[(df_base_comp['Nivel'] == 4) & (df_base_comp['Conta'].str.startswith(pref))]['PERÍODO A'].sum()
+                    df_base_comp.at[idx, 'PERÍODO B'] = df_base_comp[(df_base_comp['Nivel'] == 4) & (df_base_comp['Conta'].str.startswith(pref))]['PERÍODO B'].sum()
+            
+            for idx, row in df_base_comp[df_base_comp['Nivel'] == 1].iterrows():
+                df_base_comp.at[idx, 'PERÍODO A'] = df_base_comp[df_base_comp['Nivel'] == 2]['PERÍODO A'].sum()
+                df_base_comp.at[idx, 'PERÍODO B'] = df_base_comp[df_base_comp['Nivel'] == 2]['PERÍODO B'].sum()
+
+            df_base_comp['DIFERENÇA'] = df_base_comp['PERÍODO B'] - df_base_comp['PERÍODO A']
+            df_base_comp['VAR %'] = df_base_comp.apply(lambda x: (x['DIFERENÇA'] / abs(x['PERÍODO A']) * 100) if x['PERÍODO A'] != 0 else 0, axis=1)
+            
+            df_comp_vis = df_base_comp[df_base_comp['Nivel'].isin(niveis_sel)].copy()
+            cols_comp = ['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']
+            
+            def style_comp(row):
+                if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
+                if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
+                return [''] * len(row)
+
+            st.dataframe(df_comp_vis[cols_comp].style.apply(style_comp, axis=1).format({
+                'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 
+                'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct
+            }), use_container_width=True, height=700)
