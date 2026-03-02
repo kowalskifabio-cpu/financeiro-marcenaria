@@ -290,7 +290,19 @@ with aba4:
             
             # Ordenar por Resultado (do pior para o melhor para destacar criticidade)
             res_cc = res_cc.sort_values(by='Resultado')
+         
+
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_visual[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
             
+            st.download_button(
+                label="📥 Exportar Relatório (Excel)",
+                data=buffer.getvalue(),
+                file_name=f"Relatorio_Financeiro_{ano_sel}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+                    
             st.dataframe(res_cc.style.format({
                 'Receitas': formatar_moeda_br,
                 'Despesas': formatar_moeda_br,
