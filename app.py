@@ -158,10 +158,20 @@ lista_cc = obter_centros_custo(ano_sel, tuple(meses_disponiveis))
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
  
-# --- PROCESSAMENTO (237 LINHAS GARANTIDAS) ---
+# --- CACHE DA BASE PARA EVITAR APIERROR ---
+@st.cache_data(ttl=600)
+def carregar_aba_base():
+    try:
+        df = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+        return df
+    except:
+        time.sleep(2)
+        return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+
+# --- PROCESSAMENTO ---
 def processar_bi(ano, meses, filtros_cc):
     if not meses: return None, []
-    df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+    df_base = carregar_aba_base().copy()
     df_base.columns = [str(c).strip() for c in df_base.columns]
     df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
     df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
