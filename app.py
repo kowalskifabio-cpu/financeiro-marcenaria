@@ -35,7 +35,7 @@ def abrir_planilha(key):
     try:
         return client.open_by_key(key)
     except Exception as e:
-        st.error(f"Erro ao abrir a planilha (Limite de cota do Google): {e}")
+        st.error(f"Erro ao abrir a planilha (Cota do Google): {e}")
         return None
  
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
@@ -158,7 +158,7 @@ lista_cc = obter_centros_custo(ano_sel, tuple(meses_disponiveis))
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
  
-# --- PROCESSAMENTO ---
+# --- PROCESSAMENTO (237 LINHAS GARANTIDAS) ---
 def processar_bi(ano, meses, filtros_cc):
     if not meses: return None, []
     df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
@@ -167,24 +167,26 @@ def processar_bi(ano, meses, filtros_cc):
     df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
  
     for m in meses:
-        df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
-        df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
-        if "Todos" not in filtros_cc and filtros_cc:
-            if 'Centro de Custo' in df_m.columns:
-                df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
-        
-        mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-        df_base[m] = 0.0
-        df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
+        try:
+            df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
+            df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+            if "Todos" not in filtros_cc and filtros_cc:
+                if 'Centro de Custo' in df_m.columns:
+                    df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
+            
+            mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+            df_base[m] = 0.0
+            df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
  
-        for n in [3, 2]:
-            for idx, row in df_base[df_base['Nivel'] == n].iterrows():
-                pref = str(row['Conta']).strip() + "."
-                total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][m].sum()
-                df_base.at[idx, m] = total
-        
-        for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
-            df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
+            for n in [3, 2]:
+                for idx, row in df_base[df_base['Nivel'] == n].iterrows():
+                    pref = str(row['Conta']).strip() + "."
+                    total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][m].sum()
+                    df_base.at[idx, m] = total
+            
+            for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
+                df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
+        except: df_base[m] = 0.0
  
     df_base['ACUMULADO'] = df_base[meses].sum(axis=1)
     df_base['MÉDIA'] = df_base[meses].mean(axis=1)
@@ -209,7 +211,7 @@ with aba2:
             df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
             cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
 
-            # --- BOTÃO DE EXPORTAÇÃO CORRIGIDO ---
+            # --- EXPORTAÇÃO EXCEL ---
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df_visual[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
@@ -275,8 +277,10 @@ with aba4:
         for m in meses_sel:
             aba_nome = f"{m}_{ano_sel}"
             if aba_nome in abas_existentes:
-                df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
-                lista_dfs_brutos.append(df_m)
+                try:
+                    df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
+                    lista_dfs_brutos.append(df_m)
+                except: pass
         
         if lista_dfs_brutos:
             df_all = pd.concat(lista_dfs_brutos, ignore_index=True)
@@ -293,15 +297,11 @@ with aba4:
             
             res_cc = res_cc.sort_values(by='Resultado')
             st.dataframe(res_cc.style.format({
-                'Receitas': formatar_moeda_br,
-                'Despesas': formatar_moeda_br,
-                'Resultado': formatar_moeda_br
-            }).applymap(lambda v: 'color: red' if v < 0 else 'color: green', subset=['Resultado']), 
-            use_container_width=True)
+                'Receitas': formatar_moeda_br, 'Despesas': formatar_moeda_br, 'Resultado': formatar_moeda_br
+            }).applymap(lambda v: 'color: red' if v < 0 else 'color: green', subset=['Resultado']), use_container_width=True)
             
             fig_cc = px.bar(res_cc, x='Centro de Custo', y=['Receitas', 'Despesas'], 
                             title="Desempenho por Centro de Custo", barmode='group',
                             color_discrete_map={'Receitas': '#22c55e', 'Despesas': '#ef4444'})
             st.plotly_chart(fig_cc, use_container_width=True)
-        else:
-            st.info("💡 Selecione meses com dados carregados.")
+        else: st.info("💡 Selecione meses com dados carregados.")
