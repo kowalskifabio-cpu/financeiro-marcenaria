@@ -86,7 +86,6 @@ with aba1:
         df = pd.read_excel(arq)
         df.columns = [str(c).strip() for c in df.columns]
         
-        # 1. VALIDAÇÃO DE DATAS
         if 'Data Baixa' in df.columns:
             df['Data Baixa'] = pd.to_datetime(df['Data Baixa'], errors='coerce')
             mes_num = meses_lista.index(m_ref) + 1
@@ -98,7 +97,6 @@ with aba1:
                 st.error(f"❌ CARGA ABORTADA: Datas fora de {m_ref}/{a_ref} detectadas.")
                 st.stop()
  
-        # 2. FILTRO E AVISO DE "BAIXA VINCULO" (RESTAURADO)
         if 'Histórico' in df.columns:
             total_antes = len(df)
             df = df[~df['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
@@ -106,16 +104,14 @@ with aba1:
             if removidos > 0:
                 st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
  
-        # 3. VALIDAÇÃO DE CONTAS E CENTROS DE CUSTO
         df_base_check = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
         contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
-        
         df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
         contas_carga = set(df['Conta_ID'].unique())
         contas_faltantes = contas_carga - contas_base
         
         if contas_faltantes:
-            st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base' antes de seguir:")
+            st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base'.")
             st.write(list(contas_faltantes))
             st.stop()
  
@@ -162,7 +158,7 @@ lista_cc = obter_centros_custo(ano_sel, tuple(meses_disponiveis))
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
  
-# --- PROCESSAMENTO (237 LINHAS GARANTIDAS) ---
+# --- PROCESSAMENTO ---
 def processar_bi(ano, meses, filtros_cc):
     if not meses: return None, []
     df_base = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
@@ -194,7 +190,6 @@ def processar_bi(ano, meses, filtros_cc):
     df_base['MÉDIA'] = df_base[meses].mean(axis=1)
     return df_base, meses
  
-# --- FUNÇÃO AUXILIAR PARA PIZZA ---
 def gerar_dados_pizza(df, nivel, limite=10):
     dados = df[(df['Nivel'] == nivel) & (df['ACUMULADO'] < 0)].copy()
     dados['Abs_Acumulado'] = dados['ACUMULADO'].abs()
@@ -213,11 +208,25 @@ with aba2:
         if df_res is not None:
             df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
             cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
+
+            # --- BOTÃO DE EXPORTAÇÃO CORRIGIDO ---
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_visual[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
+            
+            st.download_button(
+                label="📥 Exportar Relatório (Excel)",
+                data=buffer.getvalue(),
+                file_name=f"Relatorio_Financeiro_{ano_sel}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
             def style_rows(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
+            
             st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
  
 with aba3:
@@ -262,7 +271,6 @@ with aba3:
 with aba4:
     st.subheader("🏢 Análise por Centro de Custo")
     if st.button("📊 Processar Centros de Custo"):
-        # Coleta dados brutos das abas selecionadas para análise por CC
         lista_dfs_brutos = []
         for m in meses_sel:
             aba_nome = f"{m}_{ano_sel}"
@@ -273,24 +281,17 @@ with aba4:
         if lista_dfs_brutos:
             df_all = pd.concat(lista_dfs_brutos, ignore_index=True)
             df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
-            
-            # Filtro de CC da Sidebar (se não for "Todos")
             if "Todos" not in cc_sel and cc_sel:
                 df_all = df_all[df_all['Centro de Custo'].isin(cc_sel)]
             
-            # Extrair Conta_ID para identificar Receita (01) e Despesa (02)
             df_all['ID_Grupo'] = df_all['Conta_ID'].astype(str).str[:2]
-            
-            # Agrupar por Centro de Custo
             res_cc = df_all.groupby('Centro de Custo').apply(lambda x: pd.Series({
                 'Receitas': x[x['ID_Grupo'] == '01']['Valor_Final'].sum(),
                 'Despesas': x[x['ID_Grupo'] == '02']['Valor_Final'].sum(),
                 'Resultado': x['Valor_Final'].sum()
             })).reset_index()
             
-            # Ordenar por Resultado (do pior para o melhor para destacar criticidade)
             res_cc = res_cc.sort_values(by='Resultado')
-            
             st.dataframe(res_cc.style.format({
                 'Receitas': formatar_moeda_br,
                 'Despesas': formatar_moeda_br,
@@ -298,10 +299,9 @@ with aba4:
             }).applymap(lambda v: 'color: red' if v < 0 else 'color: green', subset=['Resultado']), 
             use_container_width=True)
             
-            # Gráfico Comparativo de CC
             fig_cc = px.bar(res_cc, x='Centro de Custo', y=['Receitas', 'Despesas'], 
                             title="Desempenho por Centro de Custo", barmode='group',
                             color_discrete_map={'Receitas': '#22c55e', 'Despesas': '#ef4444'})
             st.plotly_chart(fig_cc, use_container_width=True)
         else:
-            st.info("💡 Selecione meses com dados carregados para visualizar a análise por Centro de Custo.")
+            st.info("💡 Selecione meses com dados carregados.")
