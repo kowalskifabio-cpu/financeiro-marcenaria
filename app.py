@@ -128,7 +128,7 @@ with aba1:
  
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
-ano_sel = st.sidebar.selectbox("Ano", [2026, 2025, 2027], index=1)
+ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027], index=1)
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
  
 @st.cache_data(ttl=600) 
@@ -141,20 +141,20 @@ def listar_abas_existentes():
  
 abas_existentes = listar_abas_existentes()
 meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
-meses_sel = st.sidebar.multiselect("Meses", meses_disponiveis, default=meses_disponiveis)
+meses_sel = st.sidebar.multiselect("Meses (Filtro Geral)", meses_disponiveis, default=meses_disponiveis)
  
 @st.cache_data(ttl=600)
-def obter_centros_custo(ano, meses_tuple): 
+def obter_centros_custo(abas_tuple): 
     centros = set()
-    for m in meses_tuple:
+    for aba_nome in abas_tuple:
         try:
-            df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
+            df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
             if 'Centro de Custo' in df_m.columns:
                 centros.update(df_m['Centro de Custo'].astype(str).unique())
         except: pass
     return sorted(list(centros))
  
-lista_cc = obter_centros_custo(ano_sel, tuple(meses_disponiveis))
+lista_cc = obter_centros_custo(tuple(abas_existentes))
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
  
@@ -168,7 +168,7 @@ def carregar_aba_base():
         time.sleep(2)
         return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
 
-# --- PROCESSAMENTO ---
+# --- PROCESSAMENTO BI ---
 def processar_bi(ano, meses, filtros_cc):
     if not meses: return None, []
     df_base = carregar_aba_base().copy()
@@ -220,8 +220,6 @@ with aba2:
         if df_res is not None:
             df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
             cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
-
-            # --- EXPORTAÇÃO EXCEL ---
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df_visual[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
@@ -232,7 +230,6 @@ with aba2:
                 file_name=f"Relatorio_Financeiro_{ano_sel}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
             def style_rows(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
@@ -281,20 +278,35 @@ with aba3:
                 st.table(df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
 
 with aba4:
-    st.subheader("🏢 Análise por Centro de Custo")
-    if st.button("📊 Processar Centros de Custo"):
+    st.subheader("🏢 Análise Multi-Período por Centro de Custo")
+    
+    # Filtros locais para permitir cruzamento de anos
+    col_ano_cc, col_mes_cc = st.columns(2)
+    with col_ano_cc:
+        anos_disponiveis = sorted(list(set([t.split('_')[1] for t in abas_existentes if '_' in t])), reverse=True)
+        anos_cc = st.multiselect("Selecione os Anos para Obra", anos_disponiveis, default=anos_disponiveis[:1])
+    
+    with col_mes_cc:
+        meses_cc = st.multiselect("Selecione os Meses para Obra", ordem_meses, default=ordem_meses)
+    
+    if st.button("📊 Processar Centros de Custo (Multi-Ano)"):
         lista_dfs_brutos = []
-        for m in meses_sel:
-            aba_nome = f"{m}_{ano_sel}"
+        # Gera a lista de abas baseada nos múltiplos anos e meses selecionados
+        abas_para_processar = [f"{m}_{a}" for a in anos_cc for m in meses_cc]
+        
+        for aba_nome in abas_para_processar:
             if aba_nome in abas_existentes:
                 try:
                     df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
-                    lista_dfs_brutos.append(df_m)
+                    if not df_m.empty:
+                        lista_dfs_brutos.append(df_m)
                 except: pass
         
         if lista_dfs_brutos:
             df_all = pd.concat(lista_dfs_brutos, ignore_index=True)
             df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
+            
+            # Aplica filtro de Centro de Custo se não for "Todos"
             if "Todos" not in cc_sel and cc_sel:
                 df_all = df_all[df_all['Centro de Custo'].isin(cc_sel)]
             
@@ -306,12 +318,14 @@ with aba4:
             })).reset_index()
             
             res_cc = res_cc.sort_values(by='Resultado')
+            st.write(f"✅ Consolidação realizada sobre {len(lista_dfs_brutos)} períodos encontrados.")
             st.dataframe(res_cc.style.format({
                 'Receitas': formatar_moeda_br, 'Despesas': formatar_moeda_br, 'Resultado': formatar_moeda_br
             }).applymap(lambda v: 'color: red' if v < 0 else 'color: green', subset=['Resultado']), use_container_width=True)
             
             fig_cc = px.bar(res_cc, x='Centro de Custo', y=['Receitas', 'Despesas'], 
-                            title="Desempenho por Centro de Custo", barmode='group',
+                            title="Desempenho Consolidado (Multi-Ano)", barmode='group',
                             color_discrete_map={'Receitas': '#22c55e', 'Despesas': '#ef4444'})
             st.plotly_chart(fig_cc, use_container_width=True)
-        else: st.info("💡 Selecione meses com dados carregados.")
+        else: 
+            st.warning("⚠️ Nenhuma aba encontrada para a combinação de Anos e Meses selecionada.")
