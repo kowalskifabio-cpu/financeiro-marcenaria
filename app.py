@@ -74,6 +74,31 @@ def formatar_moeda_br(val):
 def formatar_pct(val):
     if not isinstance(val, (int, float)): return val
     return f"{val:.1f}%"
+
+# --- FUNÇÃO DE FILTRO DE LINHAS ZERADAS (HIERARQUIA REVERSA) ---
+def filtrar_linhas_zeradas(df, colunas_valores):
+    df = df.copy()
+    # Identifica Nível 4 que está zerado em todas as colunas de valor
+    df['zerado'] = df[colunas_valores].abs().sum(axis=1) == 0
+    
+    # Marcar Nível 4 para remoção
+    remover_indices = set(df[(df['Nivel'] == 4) & (df['zerado'])].index)
+    
+    # Regra para Nível 3: Só remove se todos os seus filhos Nível 4 estiverem zerados
+    for idx, row in df[df['Nivel'] == 3].iterrows():
+        prefixo = str(row['Conta']).strip() + "."
+        filhos = df[(df['Nivel'] == 4) & (df['Conta'].str.startswith(prefixo))]
+        if not filhos.empty and filhos['zerado'].all():
+            remover_indices.add(idx)
+            
+    # Regra para Nível 2: Só remove se todos os seus filhos Nível 3 estiverem zerados
+    for idx, row in df[df['Nivel'] == 2].iterrows():
+        prefixo = str(row['Conta']).strip() + "."
+        filhos_n3 = df[(df['Nivel'] == 3) & (df['Conta'].str.startswith(prefixo))]
+        if not filhos_n3.empty and all(i in remover_indices for i in filhos_n3.index):
+            remover_indices.add(idx)
+            
+    return df.drop(index=list(remover_indices)).drop(columns=['zerado'])
  
 st.title("📊 Gestor Financeiro - Status Marcenaria")
  
@@ -219,9 +244,15 @@ def gerar_dados_pizza(df, nivel, limite=10):
  
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
+    ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento (Aba Relatório)", value=False)
+    
     if st.button("📊 Gerar Relatório Filtrado"):
         df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_res is not None:
+            colunas_valores = meses_exibir + ['ACUMULADO']
+            if ocultar_vazios_aba2:
+                df_res = filtrar_linhas_zeradas(df_res, colunas_valores)
+            
             df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
             cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
             buffer = io.BytesIO()
@@ -320,6 +351,7 @@ with aba4:
 with aba5:
     st.subheader("⚖️ Comparativo de Períodos")
     st.info("Compare dois blocos de períodos (ex: Mar/2024 a Jun/2024 vs Mar/2025 a Jun/2025)")
+    ocultar_vazios_aba5 = st.checkbox("🚫 Ocultar Contas sem Movimento (Aba Comparativo)", value=False)
     
     c_p1, c_p2 = st.columns(2)
     with c_p1:
@@ -379,6 +411,9 @@ with aba5:
             df_base_comp['DIFERENÇA'] = df_base_comp['PERÍODO B'] - df_base_comp['PERÍODO A']
             df_base_comp['VAR %'] = df_base_comp.apply(lambda x: (x['DIFERENÇA'] / abs(x['PERÍODO A']) * 100) if x['PERÍODO A'] != 0 else 0, axis=1)
             
+            if ocultar_vazios_aba5:
+                df_base_comp = filtrar_linhas_zeradas(df_base_comp, ['PERÍODO A', 'PERÍODO B'])
+
             df_comp_vis = df_base_comp[df_base_comp['Nivel'].isin(niveis_sel)].copy()
             cols_comp = ['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']
             
