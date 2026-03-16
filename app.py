@@ -94,6 +94,15 @@ def filtrar_linhas_zeradas(df, colunas_valores):
             remover_indices.add(idx)
             
     return df.drop(index=list(remover_indices)).drop(columns=['zerado'])
+
+# --- CACHE DE ABAS ---
+@st.cache_data(ttl=600) 
+def listar_abas_existentes():
+    try:
+        return [w.title for w in spreadsheet.worksheets()]
+    except:
+        time.sleep(2)
+        return [w.title for w in spreadsheet.worksheets()]
  
 st.title("📊 Gestor Financeiro - Status Marcenaria")
  
@@ -148,22 +157,17 @@ with aba1:
         except:
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
         ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
-        st.success(f"✅ Dados de {m_ref}/{a_ref} salvos!")
+        
+        # LIMPEZA DO CACHE APÓS CARGA BEM SUCEDIDA
+        st.cache_data.clear()
+        st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
  
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
-ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027, 2024], index=1)
+abas_existentes = listar_abas_existentes()
+ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027, 2024], index=0)
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
  
-@st.cache_data(ttl=600) 
-def listar_abas_existentes():
-    try:
-        return [w.title for w in spreadsheet.worksheets()]
-    except:
-        time.sleep(2)
-        return [w.title for w in spreadsheet.worksheets()]
- 
-abas_existentes = listar_abas_existentes()
 meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
 meses_sel = st.sidebar.multiselect("Meses (Filtro Geral)", meses_disponiveis, default=meses_disponiveis)
  
@@ -339,14 +343,12 @@ with aba4:
             })).reset_index()
             res_cc = res_cc.sort_values(by='Resultado')
             
-            # --- LINHA DE TOTALIZADOR ---
             total_receitas = res_cc['Receitas'].sum()
             total_despesas = res_cc['Despesas'].sum()
             total_resultado = res_cc['Resultado'].sum()
             linha_total = pd.DataFrame({'Centro de Custo': ['TOTAL CONSOLIDADO'], 'Receitas': [total_receitas], 'Despesas': [total_despesas], 'Resultado': [total_resultado]})
             res_cc = pd.concat([linha_total, res_cc], ignore_index=True)
 
-            # --- EXPORTAÇÃO CENTRO DE CUSTO ---
             buffer_cc = io.BytesIO()
             with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer:
                 res_cc.to_excel(writer, index=False, sheet_name='Obras')
@@ -428,7 +430,6 @@ with aba5:
             df_comp_vis = df_base_comp[df_base_comp['Nivel'].isin(niveis_sel)].copy()
             cols_comp = ['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']
             
-            # --- EXPORTAÇÃO COMPARATIVO ---
             buffer_comp = io.BytesIO()
             with pd.ExcelWriter(buffer_comp, engine='openpyxl') as writer:
                 df_comp_vis[cols_comp].to_excel(writer, index=False, sheet_name='Comparativo')
