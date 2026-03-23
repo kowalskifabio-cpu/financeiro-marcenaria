@@ -231,7 +231,7 @@ def gerar_dados_pizza(df, nivel, limite=10):
         principais = dados.head(limite).copy()
         outros_val = dados.iloc[limite:]['Abs_Acumulado'].sum()
         outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
-        return pd.concat([principais,裝outros_df], ignore_index=True)
+        return pd.concat([principais, outros_df], ignore_index=True)
     return dados
  
 with aba2:
@@ -260,19 +260,16 @@ with aba3:
     if st.button("📈 Ver Dashboard"):
         df_ind, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_ind is not None:
-            # Cálculos Base
             rec = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
             desp = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
             lucro = rec + desp
             rent_val = (lucro/rec*100) if rec > 0 else 0
             
-            # --- SEÇÃO 1: MÉTRICAS PRINCIPAIS ---
             c1, c2, c3 = st.columns(3)
             c1.metric("Faturamento", formatar_moeda_br(rec))
             c2.metric("Despesa", formatar_moeda_br(desp))
             c3.metric("Lucro Líquido", formatar_moeda_br(lucro), delta=f"{rent_val:.1f}% Rentabilidade")
             
-            # --- SEÇÃO 2: GRÁFICOS ORIGINAIS ---
             st.divider()
             df_chart = df_ind[(df_ind['Nivel'] == 2) & (df_ind['Conta'].isin(['01', '02']))].copy()
             df_melted = df_chart.melt(id_vars=['Descrição'], value_vars=meses_exibir, var_name='Mês', value_name='Valor')
@@ -296,7 +293,6 @@ with aba3:
                 st.plotly_chart(fig_p4, use_container_width=True)
                 st.table(df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
 
-            # --- SEÇÃO 3: NOVOS INDICADORES DE RENTABILIDADE ---
             st.divider()
             st.write("### 📊 Rentabilidade e Composição s/ Receita")
             df_perc = df_ind[df_ind['Nivel'] == 2].copy()
@@ -344,33 +340,43 @@ with aba5:
     ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento (Comparativo)", value=False)
     c_p1, c_p2 = st.columns(2)
     with c_p1:
-        anos_a, meses_a = st.multiselect("Anos A", anos_existentes_plan, key="aa"), st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="ma")
+        anos_a = st.multiselect("Anos A", anos_existentes_plan, key="aa")
+        meses_a = st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="ma")
     with c_p2:
-        anos_b, meses_b = st.multiselect("Anos B", anos_existentes_plan, key="ab"), st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mb")
+        anos_b = st.multiselect("Anos B", anos_existentes_plan, key="ab")
+        meses_b = st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mb")
+        
     if st.button("🔄 Comparar"):
         df_base_c = carregar_aba_base().copy()
         df_base_c.columns = [str(c).strip() for c in df_base_c.columns]
         df_base_c = df_base_c.rename(columns={df_base_c.columns[0]: 'Conta', df_base_c.columns[1]: 'Descrição', df_base_c.columns[2]: 'Nivel'})
         df_base_c['Conta'] = df_base_c.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
+        
         def calc_per(anos, meses):
             map_p = {}
             for aba in [f"{m}_{a}" for a in anos for m in meses]:
                 if aba in abas_existentes:
-                    df_m = pd.DataFrame(spreadsheet.worksheet(aba).get_all_records())
-                    df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
-                    parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-                    for k,v in parciais.items(): map_p[k] = map_p.get(k,0)+v
+                    try:
+                        df_m = pd.DataFrame(spreadsheet.worksheet(aba).get_all_records())
+                        df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+                        parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+                        for k,v in parciais.items(): map_p[k] = map_p.get(k,0)+v
+                    except: pass
             return map_p
+            
         m_a, m_b = calc_per(anos_a, meses_a), calc_per(anos_b, meses_b)
-        df_base_c['PERÍODO A'], df_base_c['PERÍODO B'] = df_base_c['Conta'].map(m_a).fillna(0), df_base_c['Conta'].map(m_b).fillna(0)
+        df_base_c['PERÍODO A'] = df_base_c['Conta'].map(m_a).fillna(0)
+        df_base_c['PERÍODO B'] = df_base_c['Conta'].map(m_b).fillna(0)
+        
         for n in [3, 2, 1]:
             for idx, row in df_base_c[df_base_c['Nivel'] == n].iterrows():
                 pref = str(row['Conta']).strip() + "."
-                if n < 4:
-                    df_base_c.at[idx, 'PERÍODO A'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO A'].sum()
-                    df_base_c.at[idx, 'PERÍODO B'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO B'].sum()
+                df_base_c.at[idx, 'PERÍODO A'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO A'].sum()
+                df_base_c.at[idx, 'PERÍODO B'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO B'].sum()
+                
         df_base_c['DIFERENÇA'] = df_base_c['PERÍODO B'] - df_base_c['PERÍODO A']
         df_base_c['VAR %'] = df_base_c.apply(lambda x: (x['DIFERENÇA']/abs(x['PERÍODO A'])*100) if x['PERÍODO A'] != 0 else 0, axis=1)
+        
         if ocultar_aba5: df_base_c = filtrar_linhas_zeradas(df_base_c, ['PERÍODO A', 'PERÍODO B'])
         
         def style_comp(row):
@@ -378,7 +384,8 @@ with aba5:
             if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
             if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
             return [''] * len(row)
-        st.dataframe(df_base_c[['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']].style.apply(style_comp, axis=1).format({'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct}), use_container_width=True)
+            
+        st.dataframe(df_base_c[['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']].style.apply(style_comp, axis=1).format({'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct}), use_container_width=True, height=700)
 
 with aba6:
     st.subheader("⚠️ Central de Alertas Preventivos")
@@ -396,10 +403,12 @@ with aba6:
             def get_vals(lista_abas):
                 map_v = {}
                 for a in lista_abas:
-                    df_m = pd.DataFrame(spreadsheet.worksheet(a).get_all_records())
-                    df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
-                    parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-                    for k,v in parciais.items(): map_v[k] = map_v.get(k,0)+v
+                    try:
+                        df_m = pd.DataFrame(spreadsheet.worksheet(a).get_all_records())
+                        df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+                        parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+                        for k,v in parciais.items(): map_v[k] = map_v.get(k,0)+v
+                    except: pass
                 return map_v
             v_at, v_hi = get_vals([mes_atual_aba]), get_vals(meses_historico)
             df_base_alert['Atual'] = df_base_alert['Conta'].map(v_at).fillna(0)
