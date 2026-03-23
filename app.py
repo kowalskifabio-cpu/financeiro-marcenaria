@@ -231,12 +231,12 @@ def gerar_dados_pizza(df, nivel, limite=10):
         principais = dados.head(limite).copy()
         outros_val = dados.iloc[limite:]['Abs_Acumulado'].sum()
         outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
-        return pd.concat([principais, outros_df], ignore_index=True)
+        return pd.concat([principais,裝outros_df], ignore_index=True)
     return dados
  
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
-    ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento (Aba Relatório)", value=False)
+    ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento (Relatório)", value=False)
     if st.button("📊 Gerar Relatório Filtrado"):
         df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_res is not None:
@@ -260,21 +260,27 @@ with aba3:
     if st.button("📈 Ver Dashboard"):
         df_ind, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_ind is not None:
+            # Cálculos Base
             rec = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
             desp = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
             lucro = rec + desp
+            rent_val = (lucro/rec*100) if rec > 0 else 0
+            
+            # --- SEÇÃO 1: MÉTRICAS PRINCIPAIS ---
             c1, c2, c3 = st.columns(3)
             c1.metric("Faturamento", formatar_moeda_br(rec))
             c2.metric("Despesa", formatar_moeda_br(desp))
-            rent_val = (lucro/rec*100) if rec > 0 else 0
             c3.metric("Lucro Líquido", formatar_moeda_br(lucro), delta=f"{rent_val:.1f}% Rentabilidade")
             
+            # --- SEÇÃO 2: GRÁFICOS ORIGINAIS ---
             st.divider()
-            st.write("### 📊 Composição sobre Receita Líquida")
-            df_perc = df_ind[df_ind['Nivel'] == 2].copy()
-            df_perc['% s/ Receita'] = df_perc.apply(lambda x: (abs(x['ACUMULADO'])/rec*100) if rec > 0 else 0, axis=1)
-            fig_bar = px.bar(df_perc[df_perc['Conta'] != '01'], x='Descrição', y='% s/ Receita', text_auto='.1f', color='Descrição', title="Peso das Despesas sobre a Receita (%)")
-            st.plotly_chart(fig_bar, use_container_width=True)
+            df_chart = df_ind[(df_ind['Nivel'] == 2) & (df_ind['Conta'].isin(['01', '02']))].copy()
+            df_melted = df_chart.melt(id_vars=['Descrição'], value_vars=meses_exibir, var_name='Mês', value_name='Valor')
+            fig_evol = px.bar(df_melted, x='Mês', y=df_melted['Valor'].abs(), color='Descrição', barmode='group',
+                            color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'}, text_auto='.2s', title="Evolução Mensal")
+            df_lucro_line = df_ind[df_ind['Nivel'] == 1].melt(value_vars=meses_exibir, var_name='Mês', value_name='Lucro')
+            fig_evol.add_trace(go.Scatter(x=df_lucro_line['Mês'], y=df_lucro_line['Lucro'], name='LUCRO LÍQUIDO', line=dict(color='#1e40af', width=3)))
+            st.plotly_chart(fig_evol, use_container_width=True)
 
             col_top3, col_top4 = st.columns(2)
             with col_top3:
@@ -282,11 +288,22 @@ with aba3:
                 df_pizza3 = gerar_dados_pizza(df_ind, 3)
                 fig_p3 = px.pie(df_pizza3, values='Abs_Acumulado', names='Descrição', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
                 st.plotly_chart(fig_p3, use_container_width=True)
+                st.table(df_ind[(df_ind['Nivel'] == 3) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
             with col_top4:
                 st.write("### 🔍 Maiores Detalhes (Nível 4)")
                 df_pizza4 = gerar_dados_pizza(df_ind, 4)
                 fig_p4 = px.pie(df_pizza4, values='Abs_Acumulado', names='Descrição', hole=0.4, color_discrete_sequence=px.colors.sequential.YlOrRd)
                 st.plotly_chart(fig_p4, use_container_width=True)
+                st.table(df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
+
+            # --- SEÇÃO 3: NOVOS INDICADORES DE RENTABILIDADE ---
+            st.divider()
+            st.write("### 📊 Rentabilidade e Composição s/ Receita")
+            df_perc = df_ind[df_ind['Nivel'] == 2].copy()
+            df_perc['% s/ Receita'] = df_perc.apply(lambda x: (abs(x['ACUMULADO'])/rec*100) if rec > 0 else 0, axis=1)
+            fig_bar_perc = px.bar(df_perc[df_perc['Conta'] != '01'], x='Descrição', y='% s/ Receita', text_auto='.1f', 
+                                 color='Descrição', title="Peso das Despesas sobre a Receita Líquida (%)", color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig_bar_perc, use_container_width=True)
 
 with aba4:
     st.subheader("🏢 Análise por Centro de Custo")
@@ -346,37 +363,36 @@ with aba5:
             return map_p
         m_a, m_b = calc_per(anos_a, meses_a), calc_per(anos_b, meses_b)
         df_base_c['PERÍODO A'], df_base_c['PERÍODO B'] = df_base_c['Conta'].map(m_a).fillna(0), df_base_c['Conta'].map(m_b).fillna(0)
-        # Re-calc hierarquia
         for n in [3, 2, 1]:
             for idx, row in df_base_c[df_base_c['Nivel'] == n].iterrows():
                 pref = str(row['Conta']).strip() + "."
                 if n < 4:
                     df_base_c.at[idx, 'PERÍODO A'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO A'].sum()
                     df_base_c.at[idx, 'PERÍODO B'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO B'].sum()
-        df_base_c['DIFERENÇA'] = df_base_c['PERÍODO B'] - df_base_comp['PERÍODO A']
+        df_base_c['DIFERENÇA'] = df_base_c['PERÍODO B'] - df_base_c['PERÍODO A']
         df_base_c['VAR %'] = df_base_c.apply(lambda x: (x['DIFERENÇA']/abs(x['PERÍODO A'])*100) if x['PERÍODO A'] != 0 else 0, axis=1)
         if ocultar_aba5: df_base_c = filtrar_linhas_zeradas(df_base_c, ['PERÍODO A', 'PERÍODO B'])
-        st.dataframe(df_base_c.style.format({'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct}), use_container_width=True)
+        
+        def style_comp(row):
+            if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
+            if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
+            if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
+            return [''] * len(row)
+        st.dataframe(df_base_c[['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']].style.apply(style_comp, axis=1).format({'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct}), use_container_width=True)
 
 with aba6:
     st.subheader("⚠️ Central de Alertas Preventivos")
     st.info("O sistema compara os gastos do último mês carregado com a média dos 3 meses anteriores.")
-    
     if abas_existentes:
-        # Pega as últimas 4 abas para ter o mês atual + 3 de histórico
         abas_sort = sorted([a for a in abas_existentes if '_' in a], key=lambda x: (int(x.split('_')[1]), meses_lista.index(x.split('_')[0])), reverse=True)
         if len(abas_sort) >= 2:
             mes_atual_aba = abas_sort[0]
             meses_historico = abas_sort[1:4]
-            
             st.write(f"**Analisando:** {mes_atual_aba} vs Média de ({', '.join(meses_historico)})")
-            
             df_base_alert = carregar_aba_base().copy()
             df_base_alert.columns = [str(c).strip() for c in df_base_alert.columns]
             df_base_alert = df_base_alert.rename(columns={df_base_alert.columns[0]: 'Conta', df_base_alert.columns[1]: 'Descrição', df_base_alert.columns[2]: 'Nivel'})
             df_base_alert['Conta'] = df_base_alert.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
-            
-            # Processa atual e média
             def get_vals(lista_abas):
                 map_v = {}
                 for a in lista_abas:
@@ -385,20 +401,12 @@ with aba6:
                     parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
                     for k,v in parciais.items(): map_v[k] = map_v.get(k,0)+v
                 return map_v
-
-            val_atual = get_vals([mes_atual_aba])
-            val_hist = get_vals(meses_historico)
-            
-            df_base_alert['Atual'] = df_base_alert['Conta'].map(val_atual).fillna(0)
-            df_base_alert['Media_Hist'] = df_base_alert['Conta'].map(val_hist).fillna(0) / len(meses_historico)
-            
-            # Regra de Alerta: Nível 3 que gastou mais que a média + 10%
+            v_at, v_hi = get_vals([mes_atual_aba]), get_vals(meses_historico)
+            df_base_alert['Atual'] = df_base_alert['Conta'].map(v_at).fillna(0)
+            df_base_alert['Media_Hist'] = df_base_alert['Conta'].map(v_hi).fillna(0) / len(meses_historico)
             alertas = df_base_alert[(df_base_alert['Nivel'] == 3) & (df_base_alert['Conta'].str.startswith('02'))].copy()
             alertas['Desvio'] = alertas['Atual'] - alertas['Media_Hist']
-            
-            # Filtra apenas quem estourou a média
-            estouros = alertas[alertas['Desvio'] < -100].sort_values(by='Desvio') # Despesa é negativa, então menor que zero é estouro
-            
+            estouros = alertas[alertas['Desvio'] < -100].sort_values(by='Desvio')
             if not estouros.empty:
                 for idx, row in estouros.iterrows():
                     with st.expander(f"🚨 Alerta: {row['Descrição']} - Estouro de {formatar_moeda_br(row['Desvio'])}"):
@@ -407,7 +415,5 @@ with aba6:
                         c2.metric("Média 3 Meses", formatar_moeda_br(row['Media_Hist']))
                         perc_estouro = (abs(row['Atual'])/abs(row['Media_Hist'])-1)*100 if row['Media_Hist'] != 0 else 0
                         c3.metric("Aumento %", f"{perc_estouro:.1f}%", delta_color="inverse")
-            else:
-                st.success("✅ Nenhum grupo de despesa ultrapassou a média histórica significativamente.")
-        else:
-            st.warning("⚠️ Dados insuficientes para calcular médias históricas (mínimo 2 meses de carga).")
+            else: st.success("✅ Tudo sob controle.")
+        else: st.warning("Dados insuficientes para média histórica.")
