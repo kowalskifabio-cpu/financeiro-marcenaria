@@ -75,7 +75,7 @@ def formatar_pct(val):
     if not isinstance(val, (int, float)): return val
     return f"{val:.1f}%"
 
-# --- FUNÇÃO DE FILTRO DE LINHAS ZERADAS (HIERARQUIA REVERSA) ---
+# --- FILTRO DE LINHAS ZERADAS ---
 def filtrar_linhas_zeradas(df, colunas_valores):
     df = df.copy()
     df['zerado'] = df[colunas_valores].abs().sum(axis=1) == 0
@@ -303,12 +303,10 @@ with aba3:
 with aba4:
     st.subheader("🏢 Análise de Obras e Rateio Dinâmico")
     
-    # --- CONFIGURAÇÃO DE RATEIO ---
     @st.cache_data(ttl=300)
     def carregar_logica_rateio():
         try:
             df_log = pd.DataFrame(spreadsheet.worksheet("Rateio").get_all_records())
-            # Normaliza para minúsculo para evitar erros de digitação do usuário
             df_log.iloc[:, 0] = df_log.iloc[:, 0].astype(str).str.lower().str.strip()
             return df_log
         except:
@@ -341,53 +339,55 @@ with aba4:
             df_all = pd.concat(lista_dfs, ignore_index=True)
             df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
             
-            # Agrupamento inicial por Centro de Custo
-            res_cc = df_all.groupby('Centro de Custo').apply(lambda x: pd.Series({
+            # --- LÓGICA DE RATEIO (SOBRE TODAS AS OBRAS DO MÊS) ---
+            # Agrupamos primeiro TUDO para calcular o rateio correto
+            res_cc_full = df_all.groupby('Centro de Custo').apply(lambda x: pd.Series({
                 'Receitas': x[x['Conta_ID'].astype(str).str.startswith('01')]['Valor_Final'].sum(),
                 'Despesa Direta': x[x['Conta_ID'].astype(str).str.startswith('02')]['Valor_Final'].sum(),
             })).reset_index()
 
             if usar_rateio and not df_rateio_config.empty:
-                # Mapeia as lógicas: rateio, fora ou obra
                 map_logica = dict(zip(df_rateio_config.iloc[:, 1], df_rateio_config.iloc[:, 0]))
-                res_cc['Logica'] = res_cc['Centro de Custo'].map(map_logica).fillna('obra')
+                res_cc_full['Logica'] = res_cc_full['Centro de Custo'].map(map_logica).fillna('obra')
                 
-                # 1. Soma o Bolo de Rateio (quem está como 'rateio')
-                bolo_rateio = res_cc[res_cc['Logica'] == 'rateio']['Despesa Direta'].sum()
+                # 1. Soma o Bolo de Rateio (Doador)
+                bolo_rateio = res_cc_full[res_cc_full['Logica'] == 'rateio']['Despesa Direta'].sum()
                 
-                # 2. Identifica os Receptores (quem está explicitamente como 'obra')
-                receptores = res_cc[res_cc['Logica'] == 'obra'].copy()
-                total_desp_receptores = receptores['Despesa Direta'].sum()
+                # 2. Base de Receptores (Obras)
+                receptores_full = res_cc_full[res_cc_full['Logica'] == 'obra'].copy()
+                total_desp_receptores = receptores_full['Despesa Direta'].sum()
                 
                 if abs(total_desp_receptores) > 0:
-                    # 3. Distribuição Proporcional
-                    res_cc['Rateio Estrutura'] = 0.0
-                    res_cc.loc[res_cc['Logica'] == 'obra', 'Rateio Estrutura'] = (res_cc['Despesa Direta'] / total_desp_receptores) * bolo_rateio
+                    res_cc_full['Rateio Estrutura'] = 0.0
+                    res_cc_full.loc[res_cc_full['Logica'] == 'obra', 'Rateio Estrutura'] = (res_cc_full['Despesa Direta'] / total_desp_receptores) * bolo_rateio
                 else:
-                    res_cc['Rateio Estrutura'] = 0.0
+                    res_cc_full['Rateio Estrutura'] = 0.0
                 
-                # Oculta os doadores de rateio do relatório final para focar no custo das obras
-                res_cc = res_cc[res_cc['Logica'] != 'rateio'].copy()
-                
-                res_cc['Resultado Real'] = res_cc['Receitas'] + res_cc['Despesa Direta'] + res_cc['Rateio Estrutura']
+                # Oculta doadores para o relatório final
+                res_cc_final = res_cc_full[res_cc_full['Logica'] != 'rateio'].copy()
+                res_cc_final['Resultado Real'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta'] + res_cc_final['Rateio Estrutura']
                 cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Rateio Estrutura', 'Resultado Real']
             else:
-                res_cc['Resultado'] = res_cc['Receitas'] + res_cc['Despesa Direta']
+                res_cc_final = res_cc_full.copy()
+                res_cc_final['Resultado'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta']
                 cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Resultado']
 
-            # Ordenação pelo resultado (pior para melhor)
-            res_cc = res_cc.sort_values(by=cols_view[-1])
+            # --- FILTRO VISUAL (APLICADO SOMENTE APÓS O CÁLCULO DO RATEIO) ---
+            if "Todos" not in cc_sel and cc_sel:
+                res_cc_final = res_cc_final[res_cc_final['Centro de Custo'].isin(cc_sel)]
+
+            res_cc_final = res_cc_final.sort_values(by=cols_view[-1])
             
             # Linha de Total Consolidado
-            somas = res_cc[cols_view[1:]].sum()
+            somas = res_cc_final[cols_view[1:]].sum()
             linha_t = pd.DataFrame([['TOTAL CONSOLIDADO'] + somas.tolist()], columns=cols_view)
-            res_cc = pd.concat([linha_t, res_cc], ignore_index=True)
+            res_cc_final = pd.concat([linha_t, res_cc_final], ignore_index=True)
 
-            st.dataframe(res_cc.style.format({c: formatar_moeda_br for c in cols_view[1:]}), use_container_width=True)
+            st.dataframe(res_cc_final.style.format({c: formatar_moeda_br for c in cols_view[1:]}), use_container_width=True)
             
             buffer_cc = io.BytesIO()
-            with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer: res_cc.to_excel(writer, index=False)
-            st.download_button(label="📥 Exportar Obras (Excel)", data=buffer_cc.getvalue(), file_name="Obras_Rateio_Status.xlsx")
+            with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer: res_cc_final.to_excel(writer, index=False)
+            st.download_button(label="📥 Exportar Obras (Excel)", data=buffer_cc.getvalue(), file_name="Obras_Rateio.xlsx")
         else: st.warning("Sem dados para o período.")
 
 with aba5:
