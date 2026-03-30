@@ -41,7 +41,7 @@ def abrir_planilha(key):
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
  
-# --- FUNÇÃO DE LIMPEZA DE CONTA ---
+# --- FUNÇÃO DE LIMPEZA DE CONTA (PRESERVAÇÃO DO .10) ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
     if '/' in v or '-' in v: 
@@ -64,7 +64,7 @@ def limpar_conta_blindado(valor, nivel):
         v = '0' + v
     return v
  
-# --- FORMATAÇÃO ---
+# --- FORMATAÇÃO BRASILEIRA ---
 def formatar_moeda_br(val):
     if not isinstance(val, (int, float)): return val
     valor_abs = abs(val)
@@ -75,7 +75,7 @@ def formatar_pct(val):
     if not isinstance(val, (int, float)): return val
     return f"{val:.1f}%"
 
-# --- FILTRO DE LINHAS ZERADAS ---
+# --- FUNÇÃO DE FILTRO DE LINHAS ZERADAS (HIERARQUIA REVERSA) ---
 def filtrar_linhas_zeradas(df, colunas_valores):
     df = df.copy()
     df['zerado'] = df[colunas_valores].abs().sum(axis=1) == 0
@@ -303,14 +303,16 @@ with aba3:
 with aba4:
     st.subheader("🏢 Análise de Obras e Rateio Dinâmico")
     
-    # --- NOVO: CONFIGURAÇÃO DE RATEIO ---
+    # --- CONFIGURAÇÃO DE RATEIO ---
     @st.cache_data(ttl=300)
     def carregar_logica_rateio():
         try:
             df_log = pd.DataFrame(spreadsheet.worksheet("Rateio").get_all_records())
+            # Normaliza para minúsculo para evitar erros de digitação do usuário
+            df_log.iloc[:, 0] = df_log.iloc[:, 0].astype(str).str.lower().str.strip()
             return df_log
         except:
-            st.warning("⚠️ Aba 'Rateio' não encontrada. Rateio dinâmico indisponível.")
+            st.warning("⚠️ Aba 'Rateio' não encontrada ou colunas inválidas.")
             return pd.DataFrame()
 
     df_rateio_config = carregar_logica_rateio()
@@ -346,29 +348,26 @@ with aba4:
             })).reset_index()
 
             if usar_rateio and not df_rateio_config.empty:
-                # Mapeia as lógicas da aba 'Rateio'
-                # Coluna 0: Lógica (rateio/fora), Coluna 1: Nome do Centro de Custo
+                # Mapeia as lógicas: rateio, fora ou obra
                 map_logica = dict(zip(df_rateio_config.iloc[:, 1], df_rateio_config.iloc[:, 0]))
-                
                 res_cc['Logica'] = res_cc['Centro de Custo'].map(map_logica).fillna('obra')
                 
-                # 1. Soma o Bolo de Rateio (quem é 'rateio')
+                # 1. Soma o Bolo de Rateio (quem está como 'rateio')
                 bolo_rateio = res_cc[res_cc['Logica'] == 'rateio']['Despesa Direta'].sum()
                 
-                # 2. Identifica os Receptores (quem não é 'rateio' nem 'fora')
+                # 2. Identifica os Receptores (quem está explicitamente como 'obra')
                 receptores = res_cc[res_cc['Logica'] == 'obra'].copy()
                 total_desp_receptores = receptores['Despesa Direta'].sum()
                 
                 if abs(total_desp_receptores) > 0:
-                    # 3. Calcula o fator de rateio para cada obra
+                    # 3. Distribuição Proporcional
                     res_cc['Rateio Estrutura'] = 0.0
                     res_cc.loc[res_cc['Logica'] == 'obra', 'Rateio Estrutura'] = (res_cc['Despesa Direta'] / total_desp_receptores) * bolo_rateio
                 else:
                     res_cc['Rateio Estrutura'] = 0.0
                 
-                # Zera as despesas diretas de quem virou rateio (para não duplicar no total)
-                res_cc.loc[res_cc['Logica'] == 'rateio', 'Despesa Direta'] = 0
-                res_cc.loc[res_cc['Logica'] == 'rateio', 'Receitas'] = 0
+                # Oculta os doadores de rateio do relatório final para focar no custo das obras
+                res_cc = res_cc[res_cc['Logica'] != 'rateio'].copy()
                 
                 res_cc['Resultado Real'] = res_cc['Receitas'] + res_cc['Despesa Direta'] + res_cc['Rateio Estrutura']
                 cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Rateio Estrutura', 'Resultado Real']
@@ -376,10 +375,10 @@ with aba4:
                 res_cc['Resultado'] = res_cc['Receitas'] + res_cc['Despesa Direta']
                 cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Resultado']
 
-            # Remove linhas que ficaram zeradas (administrativos já rateados)
-            res_cc = res_cc[res_cc[cols_view[1:]].abs().sum(axis=1) > 0.01].sort_values(by=cols_view[-1])
+            # Ordenação pelo resultado (pior para melhor)
+            res_cc = res_cc.sort_values(by=cols_view[-1])
             
-            # Linha de Total
+            # Linha de Total Consolidado
             somas = res_cc[cols_view[1:]].sum()
             linha_t = pd.DataFrame([['TOTAL CONSOLIDADO'] + somas.tolist()], columns=cols_view)
             res_cc = pd.concat([linha_t, res_cc], ignore_index=True)
@@ -388,7 +387,7 @@ with aba4:
             
             buffer_cc = io.BytesIO()
             with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer: res_cc.to_excel(writer, index=False)
-            st.download_button(label="📥 Exportar Obras (Excel)", data=buffer_cc.getvalue(), file_name="Obras_Rateio.xlsx")
+            st.download_button(label="📥 Exportar Obras (Excel)", data=buffer_cc.getvalue(), file_name="Obras_Rateio_Status.xlsx")
         else: st.warning("Sem dados para o período.")
 
 with aba5:
