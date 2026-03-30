@@ -187,15 +187,19 @@ niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4
 @st.cache_data(ttl=600)
 def carregar_aba_base():
     try:
-        df = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
-        return df
-    except:
-        time.sleep(2)
         return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+    except Exception as e:
+        time.sleep(2)
+        try:
+            return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+        except:
+            st.error("Erro ao carregar aba Base. Tente recarregar a página.")
+            return pd.DataFrame()
 
 def processar_bi(ano, meses, filtros_cc):
     if not meses: return None, []
     df_base = carregar_aba_base().copy()
+    if df_base.empty: return None, []
     df_base.columns = [str(c).strip() for c in df_base.columns]
     df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
     df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
@@ -247,7 +251,7 @@ with aba2:
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df_visual[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
-            st.download_button(label="📥 Exportar Relatório (Excel)", data=buffer.getvalue(), file_name=f"Relatorio_Financeiro_{ano_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(label="📥 Exportar Relatório (Excel)", data=buffer.getvalue(), file_name=f"Relatorio_{ano_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             def style_rows(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
@@ -348,81 +352,88 @@ with aba5:
         
     if st.button("🔄 Comparar"):
         df_base_c = carregar_aba_base().copy()
-        df_base_c.columns = [str(c).strip() for c in df_base_c.columns]
-        df_base_c = df_base_c.rename(columns={df_base_c.columns[0]: 'Conta', df_base_c.columns[1]: 'Descrição', df_base_c.columns[2]: 'Nivel'})
-        df_base_c['Conta'] = df_base_c.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
-        
-        def calc_per(anos, meses):
-            map_p = {}
-            for aba in [f"{m}_{a}" for a in anos for m in meses]:
-                if aba in abas_existentes:
-                    try:
-                        df_m = pd.DataFrame(spreadsheet.worksheet(aba).get_all_records())
-                        df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
-                        parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-                        for k,v in parciais.items(): map_p[k] = map_p.get(k,0)+v
-                    except: pass
-            return map_p
+        if not df_base_c.empty:
+            df_base_c.columns = [str(c).strip() for c in df_base_c.columns]
+            df_base_c = df_base_c.rename(columns={df_base_c.columns[0]: 'Conta', df_base_c.columns[1]: 'Descrição', df_base_c.columns[2]: 'Nivel'})
+            df_base_c['Conta'] = df_base_c.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
             
-        m_a, m_b = calc_per(anos_a, meses_a), calc_per(anos_b, meses_b)
-        df_base_c['PERÍODO A'] = df_base_c['Conta'].map(m_a).fillna(0)
-        df_base_c['PERÍODO B'] = df_base_c['Conta'].map(m_b).fillna(0)
-        
-        for n in [3, 2, 1]:
-            for idx, row in df_base_c[df_base_c['Nivel'] == n].iterrows():
-                pref = str(row['Conta']).strip() + "."
-                df_base_c.at[idx, 'PERÍODO A'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO A'].sum()
-                df_base_c.at[idx, 'PERÍODO B'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO B'].sum()
+            def calc_per(anos, meses):
+                map_p = {}
+                for aba in [f"{m}_{a}" for a in anos for m in meses]:
+                    if aba in abas_existentes:
+                        try:
+                            df_m = pd.DataFrame(spreadsheet.worksheet(aba).get_all_records())
+                            df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+                            parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+                            for k,v in parciais.items(): map_p[k] = map_p.get(k,0)+v
+                        except: pass
+                return map_p
                 
-        df_base_c['DIFERENÇA'] = df_base_c['PERÍODO B'] - df_base_c['PERÍODO A']
-        df_base_c['VAR %'] = df_base_c.apply(lambda x: (x['DIFERENÇA']/abs(x['PERÍODO A'])*100) if x['PERÍODO A'] != 0 else 0, axis=1)
-        
-        if ocultar_aba5: df_base_c = filtrar_linhas_zeradas(df_base_c, ['PERÍODO A', 'PERÍODO B'])
-        
-        def style_comp(row):
-            if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
-            if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
-            if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
-            return [''] * len(row)
+            m_a, m_b = calc_per(anos_a, meses_a), calc_per(anos_b, meses_b)
+            df_base_c['PERÍODO A'] = df_base_c['Conta'].map(m_a).fillna(0)
+            df_base_c['PERÍODO B'] = df_base_c['Conta'].map(m_b).fillna(0)
             
-        st.dataframe(df_base_c[['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']].style.apply(style_comp, axis=1).format({'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct}), use_container_width=True, height=700)
+            for n in [3, 2, 1]:
+                for idx, row in df_base_c[df_base_c['Nivel'] == n].iterrows():
+                    pref = str(row['Conta']).strip() + "."
+                    df_base_c.at[idx, 'PERÍODO A'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO A'].sum()
+                    df_base_c.at[idx, 'PERÍODO B'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO B'].sum()
+                    
+            df_base_c['DIFERENÇA'] = df_base_c['PERÍODO B'] - df_base_c['PERÍODO A']
+            df_base_c['VAR %'] = df_base_c.apply(lambda x: (x['DIFERENÇA']/abs(x['PERÍODO A'])*100) if x['PERÍODO A'] != 0 else 0, axis=1)
+            
+            if ocultar_aba5: df_base_c = filtrar_linhas_zeradas(df_base_c, ['PERÍODO A', 'PERÍODO B'])
+            
+            def style_comp(row):
+                if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
+                if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
+                if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
+                return [''] * len(row)
+                
+            st.dataframe(df_base_c[['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']].style.apply(style_comp, axis=1).format({'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct}), use_container_width=True, height=700)
 
 with aba6:
     st.subheader("⚠️ Central de Alertas Preventivos")
-    st.info("O sistema compara os gastos do último mês carregado com a média dos 3 meses anteriores.")
+    st.info("O sistema compara os gastos do mês atual com a média histórica.")
     if abas_existentes:
         abas_sort = sorted([a for a in abas_existentes if '_' in a], key=lambda x: (int(x.split('_')[1]), meses_lista.index(x.split('_')[0])), reverse=True)
         if len(abas_sort) >= 2:
             mes_atual_aba = abas_sort[0]
             meses_historico = abas_sort[1:4]
             st.write(f"**Analisando:** {mes_atual_aba} vs Média de ({', '.join(meses_historico)})")
+            
             df_base_alert = carregar_aba_base().copy()
-            df_base_alert.columns = [str(c).strip() for c in df_base_alert.columns]
-            df_base_alert = df_base_alert.rename(columns={df_base_alert.columns[0]: 'Conta', df_base_alert.columns[1]: 'Descrição', df_base_alert.columns[2]: 'Nivel'})
-            df_base_alert['Conta'] = df_base_alert.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
-            def get_vals(lista_abas):
-                map_v = {}
-                for a in lista_abas:
-                    try:
-                        df_m = pd.DataFrame(spreadsheet.worksheet(a).get_all_records())
-                        df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
-                        parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-                        for k,v in parciais.items(): map_v[k] = map_v.get(k,0)+v
-                    except: pass
-                return map_v
-            v_at, v_hi = get_vals([mes_atual_aba]), get_vals(meses_historico)
-            df_base_alert['Atual'] = df_base_alert['Conta'].map(v_at).fillna(0)
-            df_base_alert['Media_Hist'] = df_base_alert['Conta'].map(v_hi).fillna(0) / len(meses_historico)
-            alertas = df_base_alert[(df_base_alert['Nivel'] == 3) & (df_base_alert['Conta'].str.startswith('02'))].copy()
-            alertas['Desvio'] = alertas['Atual'] - alertas['Media_Hist']
-            estouros = alertas[alertas['Desvio'] < -100].sort_values(by='Desvio')
-            if not estouros.empty:
-                for idx, row in estouros.iterrows():
-                    with st.expander(f"🚨 Alerta: {row['Descrição']} - Estouro de {formatar_moeda_br(row['Desvio'])}"):
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric("Gasto Atual", formatar_moeda_br(row['Atual']))
-                        c2.metric("Média 3 Meses", formatar_moeda_br(row['Media_Hist']))
-                        perc_estouro = (abs(row['Atual'])/abs(row['Media_Hist'])-1)*100 if row['Media_Hist'] != 0 else 0
-                        c3.metric("Aumento %", f"{perc_estouro:.1f}%", delta_color="inverse")
-            else: st.success("✅ Tudo sob controle.")
+            if not df_base_alert.empty:
+                df_base_alert.columns = [str(c).strip() for c in df_base_alert.columns]
+                df_base_alert = df_base_alert.rename(columns={df_base_alert.columns[0]: 'Conta', df_base_alert.columns[1]: 'Descrição', df_base_alert.columns[2]: 'Nivel'})
+                df_base_alert['Conta'] = df_base_alert.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
+                
+                def get_vals(lista_abas):
+                    map_v = {}
+                    for a in lista_abas:
+                        try:
+                            df_m = pd.DataFrame(spreadsheet.worksheet(a).get_all_records())
+                            df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+                            parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+                            for k,v in parciais.items(): map_v[k] = map_v.get(k,0)+v
+                        except: pass
+                    return map_v
+                
+                v_at, v_hi = get_vals([mes_atual_aba]), get_vals(meses_historico)
+                df_base_alert['Atual'] = df_base_alert['Conta'].map(v_at).fillna(0)
+                df_base_alert['Media_Hist'] = df_base_alert['Conta'].map(v_hi).fillna(0) / len(meses_historico)
+                
+                alertas = df_base_alert[(df_base_alert['Nivel'] == 3) & (df_base_alert['Conta'].str.startswith('02'))].copy()
+                alertas['Desvio'] = alertas['Atual'] - alertas['Media_Hist']
+                estouros = alertas[alertas['Desvio'] < -100].sort_values(by='Desvio')
+                
+                if not estouros.empty:
+                    for idx, row in estouros.iterrows():
+                        with st.expander(f"🚨 Alerta: {row['Descrição']} - Estouro de {formatar_moeda_br(row['Desvio'])}"):
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("Gasto Atual", formatar_moeda_br(row['Atual']))
+                            c2.metric("Média 3 Meses", formatar_moeda_br(row['Media_Hist']))
+                            perc_estouro = (abs(row['Atual'])/abs(row['Media_Hist'])-1)*100 if row['Media_Hist'] != 0 else 0
+                            c3.metric("Aumento %", f"{perc_estouro:.1f}%", delta_color="inverse")
+                else: st.success("✅ Tudo sob controle.")
         else: st.warning("Dados insuficientes para média histórica.")
