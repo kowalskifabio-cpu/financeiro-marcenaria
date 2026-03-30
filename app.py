@@ -41,7 +41,7 @@ def abrir_planilha(key):
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
  
-# --- FUNÇÃO DE LIMPEZA DE CONTA (PRESERVAÇÃO DO .10) ---
+# --- FUNÇÃO DE LIMPEZA DE CONTA ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
     if '/' in v or '-' in v: 
@@ -64,7 +64,7 @@ def limpar_conta_blindado(valor, nivel):
         v = '0' + v
     return v
  
-# --- FORMATAÇÃO BRASILEIRA ---
+# --- FORMATAÇÃO ---
 def formatar_moeda_br(val):
     if not isinstance(val, (int, float)): return val
     valor_abs = abs(val)
@@ -75,7 +75,7 @@ def formatar_pct(val):
     if not isinstance(val, (int, float)): return val
     return f"{val:.1f}%"
 
-# --- FUNÇÃO DE FILTRO DE LINHAS ZERADAS (HIERARQUIA REVERSA) ---
+# --- FILTRO DE LINHAS ZERADAS ---
 def filtrar_linhas_zeradas(df, colunas_valores):
     df = df.copy()
     df['zerado'] = df[colunas_valores].abs().sum(axis=1) == 0
@@ -188,13 +188,10 @@ niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4
 def carregar_aba_base():
     try:
         return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
-    except Exception as e:
+    except:
         time.sleep(2)
-        try:
-            return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
-        except:
-            st.error("Erro ao carregar aba Base. Tente recarregar a página.")
-            return pd.DataFrame()
+        try: return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+        except: return pd.DataFrame()
 
 def processar_bi(ano, meses, filtros_cc):
     if not meses: return None, []
@@ -240,7 +237,7 @@ def gerar_dados_pizza(df, nivel, limite=10):
  
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
-    ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento (Relatório)", value=False)
+    ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento", value=False, key="ocultar_aba2")
     if st.button("📊 Gerar Relatório Filtrado"):
         df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_res is not None:
@@ -251,7 +248,7 @@ with aba2:
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df_visual[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
-            st.download_button(label="📥 Exportar Relatório (Excel)", data=buffer.getvalue(), file_name=f"Relatorio_{ano_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(label="📥 Exportar Relatório (Excel)", data=buffer.getvalue(), file_name=f"Relatorio_{ano_sel}.xlsx")
             def style_rows(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
@@ -289,16 +286,14 @@ with aba3:
                 df_pizza3 = gerar_dados_pizza(df_ind, 3)
                 fig_p3 = px.pie(df_pizza3, values='Abs_Acumulado', names='Descrição', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
                 st.plotly_chart(fig_p3, use_container_width=True)
-                st.table(df_ind[(df_ind['Nivel'] == 3) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
             with col_top4:
                 st.write("### 🔍 Maiores Detalhes (Nível 4)")
                 df_pizza4 = gerar_dados_pizza(df_ind, 4)
                 fig_p4 = px.pie(df_pizza4, values='Abs_Acumulado', names='Descrição', hole=0.4, color_discrete_sequence=px.colors.sequential.YlOrRd)
                 st.plotly_chart(fig_p4, use_container_width=True)
-                st.table(df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].sort_values(by='ACUMULADO').head(10)[['Conta', 'Descrição', 'ACUMULADO']].style.format({'ACUMULADO': formatar_moeda_br}))
 
             st.divider()
-            st.write("### 📊 Rentabilidade e Composição s/ Receita")
+            st.write("### 📊 Composição sobre Receita Líquida")
             df_perc = df_ind[df_ind['Nivel'] == 2].copy()
             df_perc['% s/ Receita'] = df_perc.apply(lambda x: (abs(x['ACUMULADO'])/rec*100) if rec > 0 else 0, axis=1)
             fig_bar_perc = px.bar(df_perc[df_perc['Conta'] != '01'], x='Descrição', y='% s/ Receita', text_auto='.1f', 
@@ -306,7 +301,24 @@ with aba3:
             st.plotly_chart(fig_bar_perc, use_container_width=True)
 
 with aba4:
-    st.subheader("🏢 Análise por Centro de Custo")
+    st.subheader("🏢 Análise de Obras e Rateio Dinâmico")
+    
+    # --- NOVO: CONFIGURAÇÃO DE RATEIO ---
+    @st.cache_data(ttl=300)
+    def carregar_logica_rateio():
+        try:
+            df_log = pd.DataFrame(spreadsheet.worksheet("Rateio").get_all_records())
+            return df_log
+        except:
+            st.warning("⚠️ Aba 'Rateio' não encontrada. Rateio dinâmico indisponível.")
+            return pd.DataFrame()
+
+    df_rateio_config = carregar_logica_rateio()
+    
+    col_v1, col_v2 = st.columns(2)
+    with col_v1:
+        usar_rateio = st.toggle("🔄 Ativar Visão de Custo Real (Rateio Dinâmico)", value=False)
+    
     col_ano_cc, col_mes_cc = st.columns(2)
     with col_ano_cc:
         anos_existentes_plan = sorted(list(set([t.split('_')[1] for t in abas_existentes if '_' in t])), reverse=True)
@@ -322,26 +334,66 @@ with aba4:
                     df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
                     if not df_m.empty: lista_dfs.append(df_m)
                 except: pass
+        
         if lista_dfs:
             df_all = pd.concat(lista_dfs, ignore_index=True)
             df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
-            if "Todos" not in cc_sel and cc_sel: df_all = df_all[df_all['Centro de Custo'].isin(cc_sel)]
+            
+            # Agrupamento inicial por Centro de Custo
             res_cc = df_all.groupby('Centro de Custo').apply(lambda x: pd.Series({
                 'Receitas': x[x['Conta_ID'].astype(str).str.startswith('01')]['Valor_Final'].sum(),
-                'Despesas': x[x['Conta_ID'].astype(str).str.startswith('02')]['Valor_Final'].sum(),
-                'Resultado': x['Valor_Final'].sum()
-            })).reset_index().sort_values(by='Resultado')
-            linha_t = pd.DataFrame({'Centro de Custo': ['TOTAL CONSOLIDADO'], 'Receitas': [res_cc['Receitas'].sum()], 'Despesas': [res_cc['Despesas'].sum()], 'Resultado': [res_cc['Resultado'].sum()]})
+                'Despesa Direta': x[x['Conta_ID'].astype(str).str.startswith('02')]['Valor_Final'].sum(),
+            })).reset_index()
+
+            if usar_rateio and not df_rateio_config.empty:
+                # Mapeia as lógicas da aba 'Rateio'
+                # Coluna 0: Lógica (rateio/fora), Coluna 1: Nome do Centro de Custo
+                map_logica = dict(zip(df_rateio_config.iloc[:, 1], df_rateio_config.iloc[:, 0]))
+                
+                res_cc['Logica'] = res_cc['Centro de Custo'].map(map_logica).fillna('obra')
+                
+                # 1. Soma o Bolo de Rateio (quem é 'rateio')
+                bolo_rateio = res_cc[res_cc['Logica'] == 'rateio']['Despesa Direta'].sum()
+                
+                # 2. Identifica os Receptores (quem não é 'rateio' nem 'fora')
+                receptores = res_cc[res_cc['Logica'] == 'obra'].copy()
+                total_desp_receptores = receptores['Despesa Direta'].sum()
+                
+                if abs(total_desp_receptores) > 0:
+                    # 3. Calcula o fator de rateio para cada obra
+                    res_cc['Rateio Estrutura'] = 0.0
+                    res_cc.loc[res_cc['Logica'] == 'obra', 'Rateio Estrutura'] = (res_cc['Despesa Direta'] / total_desp_receptores) * bolo_rateio
+                else:
+                    res_cc['Rateio Estrutura'] = 0.0
+                
+                # Zera as despesas diretas de quem virou rateio (para não duplicar no total)
+                res_cc.loc[res_cc['Logica'] == 'rateio', 'Despesa Direta'] = 0
+                res_cc.loc[res_cc['Logica'] == 'rateio', 'Receitas'] = 0
+                
+                res_cc['Resultado Real'] = res_cc['Receitas'] + res_cc['Despesa Direta'] + res_cc['Rateio Estrutura']
+                cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Rateio Estrutura', 'Resultado Real']
+            else:
+                res_cc['Resultado'] = res_cc['Receitas'] + res_cc['Despesa Direta']
+                cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Resultado']
+
+            # Remove linhas que ficaram zeradas (administrativos já rateados)
+            res_cc = res_cc[res_cc[cols_view[1:]].abs().sum(axis=1) > 0.01].sort_values(by=cols_view[-1])
+            
+            # Linha de Total
+            somas = res_cc[cols_view[1:]].sum()
+            linha_t = pd.DataFrame([['TOTAL CONSOLIDADO'] + somas.tolist()], columns=cols_view)
             res_cc = pd.concat([linha_t, res_cc], ignore_index=True)
+
+            st.dataframe(res_cc.style.format({c: formatar_moeda_br for c in cols_view[1:]}), use_container_width=True)
+            
             buffer_cc = io.BytesIO()
-            with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer: res_cc.to_excel(writer, index=False, sheet_name='Obras')
-            st.download_button(label="📥 Exportar Obras (Excel)", data=buffer_cc.getvalue(), file_name="Obras.xlsx")
-            st.dataframe(res_cc.style.format({'Receitas': formatar_moeda_br, 'Despesas': formatar_moeda_br, 'Resultado': formatar_moeda_br}), use_container_width=True)
-        else: st.warning("Sem dados.")
+            with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer: res_cc.to_excel(writer, index=False)
+            st.download_button(label="📥 Exportar Obras (Excel)", data=buffer_cc.getvalue(), file_name="Obras_Rateio.xlsx")
+        else: st.warning("Sem dados para o período.")
 
 with aba5:
     st.subheader("⚖️ Comparativo de Períodos")
-    ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento (Comparativo)", value=False)
+    ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5")
     c_p1, c_p2 = st.columns(2)
     with c_p1:
         anos_a = st.multiselect("Anos A", anos_existentes_plan, key="aa")
@@ -389,12 +441,10 @@ with aba5:
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
-                
             st.dataframe(df_base_c[['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']].style.apply(style_comp, axis=1).format({'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct}), use_container_width=True, height=700)
 
 with aba6:
     st.subheader("⚠️ Central de Alertas Preventivos")
-    st.info("O sistema compara os gastos do mês atual com a média histórica.")
     if abas_existentes:
         abas_sort = sorted([a for a in abas_existentes if '_' in a], key=lambda x: (int(x.split('_')[1]), meses_lista.index(x.split('_')[0])), reverse=True)
         if len(abas_sort) >= 2:
@@ -436,4 +486,3 @@ with aba6:
                             perc_estouro = (abs(row['Atual'])/abs(row['Media_Hist'])-1)*100 if row['Media_Hist'] != 0 else 0
                             c3.metric("Aumento %", f"{perc_estouro:.1f}%", delta_color="inverse")
                 else: st.success("✅ Tudo sob controle.")
-        else: st.warning("Dados insuficientes para média histórica.")
