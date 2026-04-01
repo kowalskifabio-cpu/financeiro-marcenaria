@@ -13,7 +13,7 @@ import google.generativeai as genai
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
 
-# Configuração da IA - Kowalski (Mantida apenas para não quebrar o código)
+# Configuração da IA - Kowalski
 if "gemini_api_key" in st.secrets:
     genai.configure(api_key=st.secrets["gemini_api_key"])
 else:
@@ -163,7 +163,14 @@ with aba1:
             ws.clear()
         except:
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
-        ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
+        
+        # --- FIX KOWALSKI: Evitando InvalidJSONError ---
+        # Convertemos o DataFrame para uma lista de listas pura de Python
+        cabecalho = df.columns.tolist()
+        valores = df.astype(str).values.tolist()
+        dados_finais = [cabecalho] + valores
+        
+        ws.update(dados_finais)
         st.cache_data.clear()
         st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
 
