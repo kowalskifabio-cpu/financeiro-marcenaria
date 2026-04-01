@@ -8,12 +8,19 @@ import io
 import time
 from datetime import datetime
 import calendar
- 
+import google.generativeai as genai # Adicionado para suporte à IA
+
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
- 
+
+# Configuração da IA usando a chave que você gerou
+if "gemini_api_key" in st.secrets:
+    genai.configure(api_key=st.secrets["gemini_api_key"])
+else:
+    st.error("❌ Chave 'gemini_api_key' não encontrada nos Secrets. A Aba 8 não funcionará.")
+
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
- 
+
 @st.cache_resource
 def get_gspread_client():
     try:
@@ -27,9 +34,9 @@ def get_gspread_client():
     except Exception as e:
         st.error(f"Erro ao autorizar Google: {e}")
         return None
- 
+
 client = get_gspread_client()
- 
+
 @st.cache_resource
 def abrir_planilha(key):
     try:
@@ -37,10 +44,10 @@ def abrir_planilha(key):
     except Exception as e:
         st.error(f"Erro ao abrir a planilha (Cota do Google): {e}")
         return None
- 
+
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
- 
+
 # --- FUNÇÃO DE LIMPEZA DE CONTA (PRESERVAÇÃO DO .10) ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
@@ -63,7 +70,7 @@ def limpar_conta_blindado(valor, nivel):
     if nivel in [2, 3] and not v.startswith('0') and (len(v) == 1 or ('.' in v and len(v.split('.')[0]) == 1)):
         v = '0' + v
     return v
- 
+
 # --- FORMATAÇÃO BRASILEIRA ---
 def formatar_moeda_br(val):
     if not isinstance(val, (int, float)): return val
@@ -103,11 +110,11 @@ def listar_abas_existentes():
     except:
         time.sleep(2)
         return [w.title for w in spreadsheet.worksheets()]
- 
+
 st.title("📊 Gestor Financeiro - Status Marcenaria")
- 
-aba1, aba2, aba3, aba4, aba5, aba6, aba7 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC"])
- 
+
+aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC", "🤖 Consultoria IA"])
+
 with aba1:
     col_m, col_a = st.columns(2)
     meses_lista = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
@@ -129,14 +136,14 @@ with aba1:
             if not fora_do_periodo.empty:
                 st.error(f"❌ CARGA ABORTADA: Datas fora de {m_ref}/{a_ref} detectadas.")
                 st.stop()
- 
+
         if 'Histórico' in df.columns:
             total_antes = len(df)
             df = df[~df['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
             removidos = total_antes - len(df)
             if removidos > 0:
                 st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
- 
+
         df_base_check = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
         contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
         df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
@@ -147,7 +154,7 @@ with aba1:
             st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base'.")
             st.write(list(contas_faltantes))
             st.stop()
- 
+
         df['Valor_Final'] = df.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
         
         nome_aba = f"{m_ref}_{a_ref}"
@@ -159,16 +166,16 @@ with aba1:
         ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
         st.cache_data.clear()
         st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
- 
+
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
 abas_existentes = listar_abas_existentes()
 ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027, 2024], index=0)
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
- 
+
 meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
 meses_sel = st.sidebar.multiselect("Meses (Filtro Geral)", meses_disponiveis, default=meses_disponiveis)
- 
+
 @st.cache_data(ttl=600)
 def obter_centros_custo(abas_tuple): 
     centros = set()
@@ -179,11 +186,11 @@ def obter_centros_custo(abas_tuple):
                 centros.update(df_m['Centro de Custo'].astype(str).unique())
         except: pass
     return sorted(list(centros))
- 
+
 lista_cc = obter_centros_custo(tuple(abas_existentes))
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
- 
+
 @st.cache_data(ttl=600)
 def carregar_aba_base():
     try:
@@ -200,7 +207,7 @@ def processar_bi(ano, meses, filtros_cc):
     df_base.columns = [str(c).strip() for c in df_base.columns]
     df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
     df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
- 
+
     for m in meses:
         try:
             df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
@@ -219,11 +226,11 @@ def processar_bi(ano, meses, filtros_cc):
             for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
                 df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
         except: df_base[m] = 0.0
- 
+
     df_base['ACUMULADO'] = df_base[meses].sum(axis=1)
     df_base['MÉDIA'] = df_base[meses].mean(axis=1)
     return df_base, meses
- 
+
 def gerar_dados_pizza(df, nivel, limite=10):
     dados = df[(df['Nivel'] == nivel) & (df['ACUMULADO'] < 0)].copy()
     dados['Abs_Acumulado'] = dados['ACUMULADO'].abs()
@@ -234,7 +241,7 @@ def gerar_dados_pizza(df, nivel, limite=10):
         outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
         return pd.concat([principais, outros_df], ignore_index=True)
     return dados
- 
+
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento", value=False, key="ocultar_aba2")
@@ -255,7 +262,7 @@ with aba2:
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
             st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
- 
+
 with aba3:
     st.subheader("Indicadores de Gestão")
     if st.button("📈 Ver Dashboard", key="btn_aba3"):
@@ -546,3 +553,50 @@ with aba7:
                     st.dataframe(res_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
             else:
                 st.warning("Não há despesas acumuladas no período para gerar a curva ABC.")
+
+# --- ABA 8: CONSULTORIA IA (NOVIDADE) ---
+with aba8:
+    st.subheader("🤖 Consultoria Financeira AI")
+    st.markdown("Clique abaixo para que o Gemini analise seus números e aponte pontos cegos estratégicos.")
+    
+    if st.button("🚀 Gerar Análise de Pontos Cegos"):
+        with st.spinner("Analisando dados da Status Marcenaria..."):
+            # Coleta os dados reais do período filtrado
+            df_ia, _ = processar_bi(ano_sel, meses_sel, cc_sel)
+            
+            if df_ia is not None:
+                # Prepara o resumo financeiro para a IA
+                rec = df_ia[df_ia['Conta'].str.startswith('01') & (df_ia['Nivel'] == 2)]['ACUMULADO'].sum()
+                desp = df_ia[df_ia['Conta'].str.startswith('02') & (df_ia['Nivel'] == 2)]['ACUMULADO'].sum()
+                lucro = rec + desp
+                top_10 = df_ia[(df_ia['Nivel'] == 4) & (df_ia['Conta'].str.startswith('02'))].sort_values(by='ACUMULADO').head(10)[['Descrição', 'ACUMULADO']]
+                
+                prompt = f"""
+                Você é um debatedor maduro e consultor financeiro sênior da Status Marcenaria. 
+                Sua missão é questionar o gestor, mostrar pontos cegos e onde o lucro está vazando.
+                
+                DADOS DO PERÍODO:
+                - Faturamento: {formatar_moeda_br(rec)}
+                - Despesas Totais: {formatar_moeda_br(desp)}
+                - Lucro Líquido: {formatar_moeda_br(lucro)}
+                - Rentabilidade: {(lucro/rec*100) if rec > 0 else 0:.1f}%
+                
+                TOP 10 CUSTOS ANALÍTICOS (ONDE O DINHEIRO ESTÁ INDO):
+                {top_10.to_string(index=False)}
+                
+                RELATÓRIO:
+                1. ANALISE: O que esses números dizem sobre a saúde da marcenaria?
+                2. PONTO CEGO: Qual custo parece desproporcional ou perigoso?
+                3. DESAFIO: Faça uma pergunta difícil para o gestor.
+                4. AÇÃO: Sugira uma mudança imediata para proteger o lucro.
+                """
+                
+                try:
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content(prompt)
+                    st.markdown("---")
+                    st.markdown("### 📝 Relatório Executivo")
+                    st.markdown(response.text)
+                    st.download_button("📥 Baixar Relatório", response.text, file_name=f"Analise_IA_{ano_sel}.txt")
+                except Exception as e:
+                    st.error(f"Erro na conexão com a IA: {e}")
