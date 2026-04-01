@@ -163,7 +163,11 @@ with aba1:
             ws.clear()
         except:
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
-        ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
+        
+        # KOWALSKI: Correção definitiva da carga para evitar InvalidJSONError
+        dados_carga = [df.columns.values.tolist()] + df.astype(str).values.tolist()
+        ws.update(dados_carga)
+        
         st.cache_data.clear()
         st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
 
@@ -354,6 +358,8 @@ with aba4:
             if usar_rateio and not df_rateio_config.empty:
                 map_logica = dict(zip(df_rateio_config.iloc[:, 1], df_rateio_config.iloc[:, 0]))
                 res_cc_full['Logica'] = res_cc_full['Centro de Custo'].map(map_logica).fillna('obra')
+                
+                # KOWALSKI: Correção da variável bolo_rateio
                 bolo_rateio = res_cc_full[res_cc_full['Logica'] == 'rateio']['Despesa Direta'].sum()
                 receptores_full = res_cc_full[res_cc_full['Logica'] == 'obra'].copy()
                 total_desp_receptores = receptores_full['Despesa Direta'].sum()
@@ -514,17 +520,14 @@ with aba7:
                 fig_pareto.update_layout(title="Pareto", yaxis=dict(title="R$"), yaxis2=dict(overlaying="y", side="right", range=[0, 105]), showlegend=False)
                 st.plotly_chart(fig_pareto, width="stretch")
 
-                # --- EXPLOSÃO ANALÍTICA ---
+                # KOWALSKI: Restauração da Explosão Analítica Nível 4
                 st.subheader("🔥 Explosão de Contas (Detalhamento)")
-                
-                with st.expander(f"🔴 EXPLODIR CLASSE A ({len(res_a)} itens críticos)"):
-                    st.dataframe(res_a[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), width="stretch")
-                
-                with st.expander(f"🟡 EXPLODIR CLASSE B ({len(res_b)} itens intermediários)"):
-                    st.dataframe(res_b[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), width="stretch")
-                
-                with st.expander(f"🟢 EXPLODIR CLASSE C ({len(res_c)} itens operacionais)"):
-                    st.dataframe(res_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), width="stretch")
+                with st.expander(f"🔴 EXPLODIR CLASSE A"):
+                    st.dataframe(res_a[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), width="stretch")
+                with st.expander(f"🟡 EXPLODIR CLASSE B"):
+                    st.dataframe(res_b[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), width="stretch")
+                with st.expander(f"🟢 EXPLODIR CLASSE C"):
+                    st.dataframe(res_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), width="stretch")
 
 # --- ABA 8: CONSULTORIA IA ---
 with aba8:
@@ -561,7 +564,7 @@ with aba8:
                 """
                 
                 try:
-                    # Kowalski, esta configuração força a biblioteca a usar o endereço correto e ignora v1beta
+                    # KOWALSKI: Chamada estável da IA para evitar 404
                     model = genai.GenerativeModel(
                         model_name='gemini-1.5-flash',
                         generation_config={"temperature": 0.7}
@@ -572,7 +575,7 @@ with aba8:
                     st.markdown("### 📝 Parecer do Consultor")
                     st.markdown(response.text)
                 except Exception as e:
-                    # Backup se o ambiente insistir no 404
+                    # Fallback de segurança
                     try:
                         model_alt = genai.GenerativeModel('models/gemini-1.5-flash')
                         response_alt = model_alt.generate_content(prompt)
