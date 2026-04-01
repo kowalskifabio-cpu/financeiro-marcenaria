@@ -556,11 +556,12 @@ with aba8:
                 """
                 
                 try:
-                    # CORREÇÃO DO MODELO AQUI: Removido o prefixo 'models/' que estava causando o 404 em algumas versões
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    # AJUSTE FINAL: Forçando o modelo 'gemini-1.5-flash-latest' para garantir compatibilidade
+                    model = genai.GenerativeModel('gemini-1.5-flash-latest')
                     response = model.generate_content(prompt)
                     st.markdown("---")
                     st.markdown("### 📝 Parecer do Consultor")
                     st.markdown(response.text)
                 except Exception as e:
+                    # Diagnóstico extra se falhar de novo
                     st.error(f"Erro na conexão com a IA: {e}")
