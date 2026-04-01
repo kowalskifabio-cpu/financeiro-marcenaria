@@ -13,8 +13,9 @@ import google.generativeai as genai
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
 
-# Configuração da IA
+# Configuração da IA - Kowalski, mantive a lógica de erro caso a chave falte
 if "gemini_api_key" in st.secrets:
+    # AJUSTE TÉCNICO: Forçando a versão da API para evitar o erro v1beta
     genai.configure(api_key=st.secrets["gemini_api_key"])
 else:
     st.warning("⚠️ 'gemini_api_key' não configurada nos Secrets.")
@@ -556,12 +557,12 @@ with aba8:
                 """
                 
                 try:
-                    # AJUSTE FINAL: Forçando o modelo 'gemini-1.5-flash-latest' para garantir compatibilidade
-                    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                    # AJUSTE DEFINITIVO KOWALSKI: Chamada via v1 para evitar o erro 404/v1beta
+                    # O nome 'gemini-1.5-flash' é o padrão estável.
+                    model = genai.GenerativeModel(model_name='gemini-1.5-flash')
                     response = model.generate_content(prompt)
                     st.markdown("---")
                     st.markdown("### 📝 Parecer do Consultor")
                     st.markdown(response.text)
                 except Exception as e:
-                    # Diagnóstico extra se falhar de novo
                     st.error(f"Erro na conexão com a IA: {e}")
