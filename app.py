@@ -13,7 +13,7 @@ import google.generativeai as genai
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
 
-# Configuração da IA - Kowalski, conexão estável v1
+# Configuração da IA - Kowalski
 if "gemini_api_key" in st.secrets:
     genai.configure(api_key=st.secrets["gemini_api_key"])
 else:
@@ -261,7 +261,7 @@ with aba2:
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
-            st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
+            st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), width="stretch", height=800)
 
 with aba3:
     st.subheader("Indicadores de Gestão")
@@ -285,19 +285,19 @@ with aba3:
                             color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'}, text_auto='.2s', title="Evolução Mensal")
             df_lucro_line = df_ind[df_ind['Nivel'] == 1].melt(value_vars=meses_exibir, var_name='Mês', value_name='Lucro')
             fig_evol.add_trace(go.Scatter(x=df_lucro_line['Mês'], y=df_lucro_line['Lucro'], name='LUCRO LÍQUIDO', line=dict(color='#1e40af', width=3)))
-            st.plotly_chart(fig_evol, use_container_width=True)
+            st.plotly_chart(fig_evol, width="stretch")
 
             col_top3, col_top4 = st.columns(2)
             with col_top3:
                 st.write("### 📉 Maiores Grupos (Nível 3)")
                 df_pizza3 = gerar_dados_pizza(df_ind, 3)
                 fig_p3 = px.pie(df_pizza3, values='Abs_Acumulado', names='Descrição', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
-                st.plotly_chart(fig_p3, use_container_width=True)
+                st.plotly_chart(fig_p3, width="stretch")
             with col_top4:
                 st.write("### 🔍 Maiores Detalhes (Nível 4)")
                 df_pizza4 = gerar_dados_pizza(df_ind, 4)
                 fig_p4 = px.pie(df_pizza4, values='Abs_Acumulado', names='Descrição', hole=0.4, color_discrete_sequence=px.colors.sequential.YlOrRd)
-                st.plotly_chart(fig_p4, use_container_width=True)
+                st.plotly_chart(fig_p4, width="stretch")
 
             st.divider()
             st.write("### 📊 Composição sobre Receita Líquida")
@@ -305,7 +305,7 @@ with aba3:
             df_perc['% s/ Receita'] = df_perc.apply(lambda x: (abs(x['ACUMULADO'])/rec*100) if rec > 0 else 0, axis=1)
             fig_bar_perc = px.bar(df_perc[df_perc['Conta'] != '01'], x='Descrição', y='% s/ Receita', text_auto='.1f', 
                                  color='Descrição', title="Peso das Despesas sobre a Receita Líquida (%)", color_discrete_sequence=px.colors.qualitative.Pastel)
-            st.plotly_chart(fig_bar_perc, use_container_width=True)
+            st.plotly_chart(fig_bar_perc, width="stretch")
 
 with aba4:
     st.subheader("🏢 Análise de Obras e Rateio Dinâmico")
@@ -379,7 +379,7 @@ with aba4:
             somas = res_cc_final[cols_view[1:]].sum()
             linha_t = pd.DataFrame([['TOTAL CONSOLIDADO'] + somas.tolist()], columns=cols_view)
             res_cc_final = pd.concat([linha_t, res_cc_final], ignore_index=True)
-            st.dataframe(res_cc_final.style.format({c: formatar_moeda_br for c in cols_view[1:]}), use_container_width=True)
+            st.dataframe(res_cc_final.style.format({c: formatar_moeda_br for c in cols_view[1:]}), width="stretch")
             
             buffer_cc = io.BytesIO()
             with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer: res_cc_final.to_excel(writer, index=False)
@@ -434,7 +434,7 @@ with aba5:
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
-            st.dataframe(df_base_c[['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']].style.apply(style_comp, axis=1).format({'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct}), use_container_width=True, height=700)
+            st.dataframe(df_base_c[['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']].style.apply(style_comp, axis=1).format({'PERÍODO A': formatar_moeda_br, 'PERÍODO B': formatar_moeda_br, 'DIFERENÇA': formatar_moeda_br, 'VAR %': formatar_pct}), width="stretch", height=700)
 
 with aba6:
     st.subheader("⚠️ Central de Alertas Preventivos")
@@ -509,22 +509,22 @@ with aba7:
                 
                 st.divider()
                 fig_pareto = go.Figure()
-                fig_pareto.add_trace(go.Bar(x=df_analitico['Descrição'], y=df_analitico['Valor_Abs'], name="Gasto Individual", marker_color='#334155'))
-                fig_pareto.add_trace(go.Scatter(x=df_analitico['Descrição'], y=df_analitico['% Acumulado'], name="% Acumulado", yaxis="y2", line=dict(color="#ef4444", width=3)))
-                fig_pareto.update_layout(title="Gráfico de Pareto - Esforço vs Resultado", yaxis=dict(title="Valor em R$"), yaxis2=dict(title="Percentual Acumulado", overlaying="y", side="right", range=[0, 105]), showlegend=False)
-                st.plotly_chart(fig_pareto, use_container_width=True)
+                fig_pareto.add_trace(go.Bar(x=df_analitico['Descrição'], y=df_analitico['Valor_Abs'], name="Gasto", marker_color='#334155'))
+                fig_pareto.add_trace(go.Scatter(x=df_analitico['Descrição'], y=df_analitico['% Acumulado'], name="Acumulado", yaxis="y2", line=dict(color="#ef4444", width=3)))
+                fig_pareto.update_layout(title="Pareto", yaxis=dict(title="R$"), yaxis2=dict(overlaying="y", side="right", range=[0, 105]), showlegend=False)
+                st.plotly_chart(fig_pareto, width="stretch")
 
                 # --- EXPLOSÃO ANALÍTICA ---
                 st.subheader("🔥 Explosão de Contas (Detalhamento)")
                 
                 with st.expander(f"🔴 EXPLODIR CLASSE A ({len(res_a)} itens críticos)"):
-                    st.dataframe(res_a[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
+                    st.dataframe(res_a[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), width="stretch")
                 
                 with st.expander(f"🟡 EXPLODIR CLASSE B ({len(res_b)} itens intermediários)"):
-                    st.dataframe(res_b[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
+                    st.dataframe(res_b[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), width="stretch")
                 
                 with st.expander(f"🟢 EXPLODIR CLASSE C ({len(res_c)} itens operacionais)"):
-                    st.dataframe(res_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
+                    st.dataframe(res_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), width="stretch")
 
 # --- ABA 8: CONSULTORIA IA ---
 with aba8:
@@ -560,20 +560,19 @@ with aba8:
                 4. AÇÃO: Sugira uma mudança imediata para proteger o lucro.
                 """
                 
-               try:
-                    # Kowalski, esta configuração força a biblioteca a usar o endereço correto
+                try:
+                    # Kowalski, esta configuração força a biblioteca a usar o endereço correto e ignora v1beta
                     model = genai.GenerativeModel(
                         model_name='gemini-1.5-flash',
                         generation_config={"temperature": 0.7}
                     )
-                    # Forçamos a chamada direta para evitar o erro de versão 404
                     response = model.generate_content(prompt)
                     
                     st.markdown("---")
                     st.markdown("### 📝 Parecer do Consultor")
                     st.markdown(response.text)
-               except Exception as e:
-                    # Se o erro 404 persistir, o sistema tentará este segundo caminho automaticamente
+                except Exception as e:
+                    # Backup se o ambiente insistir no 404
                     try:
                         model_alt = genai.GenerativeModel('models/gemini-1.5-flash')
                         response_alt = model_alt.generate_content(prompt)
