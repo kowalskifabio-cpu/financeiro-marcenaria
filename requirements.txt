@@ -4,5 +4,4 @@ gspread
 google-auth
 openpyxl
 plotly
-nbformat
 google-generativeai==0.3.1
