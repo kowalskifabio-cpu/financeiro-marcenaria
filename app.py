@@ -419,17 +419,17 @@ with aba4:
 
 with aba5:
     st.subheader("⚖️ Comparativo de Períodos Independente")
-    ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5_v16_4")
+    ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5_v16_5")
     
     c_p1, c_p2 = st.columns(2)
     with c_p1:
-        aa = st.multiselect("Anos A", [2024, 2025, 2026, 2027], key="aa_v16_4")
-        ma = st.multiselect("Meses A", meses_lista, default=meses_lista, key="ma_v16_4")
+        aa = st.multiselect("Anos A", [2024, 2025, 2026, 2027], key="aa_v16_5")
+        ma = st.multiselect("Meses A", meses_lista, default=meses_lista, key="ma_v16_5")
     with c_p2:
-        ab = st.multiselect("Anos B", [2024, 2025, 2026, 2027], key="ab_v16_4")
-        mb = st.multiselect("Meses B", meses_lista, default=meses_lista, key="mb_v16_4")
+        ab = st.multiselect("Anos B", [2024, 2025, 2026, 2027], key="ab_v16_5")
+        mb = st.multiselect("Meses B", meses_lista, default=meses_lista, key="mb_v16_5")
         
-    if st.button("🔄 Executar Comparativo", key="btn_aba5_v16_4"):
+    if st.button("🔄 Executar Comparativo", key="btn_aba5_v16_5"):
         # Limpeza de cache para evitar o erro do "reboot"
         st.cache_data.clear()
         
@@ -468,14 +468,17 @@ with aba5:
             df_base_c['PERÍODO A'] = df_base_c['Conta'].map(dados_a).fillna(0)
             df_base_c['PERÍODO B'] = df_base_c['Conta'].map(dados_b).fillna(0)
             
-            # 2. Agora somamos para cima de forma recursiva (O segredo do erro da imagem)
-            for n in [3, 2, 1]:
+            # 2. Somamos os Níveis 3 e 2 (Baseados nos filhos analíticos)
+            for n in [3, 2]:
                 for idx, row in df_base_c[df_base_c['Nivel'] == n].iterrows():
-                    # Buscamos todos os Níveis 4 que começam com o código do pai
-                    # Ex: Se o pai é 01.01, buscamos tudo que começa com 01.01.
                     pref = str(row['Conta']).strip() + "."
                     df_base_c.at[idx, 'PERÍODO A'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO A'].sum()
                     df_base_c.at[idx, 'PERÍODO B'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO B'].sum()
+
+            # 3. CORREÇÃO DO NÍVEL 1: Ele soma os totais dos Níveis 2 (Receitas + Despesas)
+            for idx, row in df_base_c[df_base_c['Nivel'] == 1].iterrows():
+                df_base_c.at[idx, 'PERÍODO A'] = df_base_c[df_base_c['Nivel'] == 2]['PERÍODO A'].sum()
+                df_base_c.at[idx, 'PERÍODO B'] = df_base_c[df_base_c['Nivel'] == 2]['PERÍODO B'].sum()
 
             df_base_c['DIFERENÇA'] = df_base_c['PERÍODO B'] - df_base_c['PERÍODO A']
             df_base_c['VAR %'] = df_base_c.apply(lambda x: (x['DIFERENÇA']/abs(x['PERÍODO A'])*100) if x['PERÍODO A'] != 0 else 0, axis=1)
