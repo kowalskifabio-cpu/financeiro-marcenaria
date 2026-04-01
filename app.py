@@ -89,6 +89,14 @@ def filtrar_linhas_zeradas(df, colunas_valores):
 def listar_abas_existentes():
     try: return [w.title for w in spreadsheet.worksheets()]
     except: return []
+@st.cache_data(ttl=300)
+def carregar_logica_rateio():
+    try:
+        df_log = pd.DataFrame(spreadsheet.worksheet("Rateio").get_all_records())
+        df_log.iloc[:, 0] = df_log.iloc[:, 0].astype(str).str.lower().str.strip()
+        return df_log
+    except:
+        return pd.DataFrame()
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
 aba1, aba2, aba3, aba4, aba5, aba6, aba7 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC"])
@@ -329,14 +337,6 @@ with aba4:
             st.dataframe(res_cc_final[cols_v].style.format({c: formatar_moeda_br for c in cols_v[1:]}), use_container_width=True)
         else: st.warning("Sem dados para o período acumulado selecionado.")
 # --- FUNÇÕES DE SUPORTE ADICIONAIS ---
-@st.cache_data(ttl=300)
-def carregar_logica_rateio():
-    try:
-        df_log = pd.DataFrame(spreadsheet.worksheet("Rateio").get_all_records())
-        df_log.iloc[:, 0] = df_log.iloc[:, 0].astype(str).str.lower().str.strip()
-        return df_log
-    except:
-        return pd.DataFrame()
 
 with aba5:
     st.subheader("⚖️ Comparativo de Períodos")
