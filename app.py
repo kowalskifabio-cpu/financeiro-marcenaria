@@ -13,7 +13,7 @@ import google.generativeai as genai
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
 
-# Configuração da IA - Kowalski, aqui forçamos a conexão limpa
+# Configuração da IA - Kowalski, conexão estável v1
 if "gemini_api_key" in st.secrets:
     genai.configure(api_key=st.secrets["gemini_api_key"])
 else:
@@ -48,7 +48,7 @@ def abrir_planilha(key):
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
 
-# --- FUNÇÃO DE LIMPEZA DE CONTA ---
+# --- FUNÇÃO DE LIMPEZA DE CONTA (PRESERVAÇÃO DO .10) ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
     if '/' in v or '-' in v: 
@@ -102,6 +102,7 @@ def filtrar_linhas_zeradas(df, colunas_valores):
             
     return df.drop(index=list(remover_indices)).drop(columns=['zerado'])
 
+# --- CACHE DE ABAS ---
 @st.cache_data(ttl=600) 
 def listar_abas_existentes():
     try:
@@ -508,10 +509,22 @@ with aba7:
                 
                 st.divider()
                 fig_pareto = go.Figure()
-                fig_pareto.add_trace(go.Bar(x=df_analitico['Descrição'], y=df_analitico['Valor_Abs'], name="Gasto", marker_color='#334155'))
-                fig_pareto.add_trace(go.Scatter(x=df_analitico['Descrição'], y=df_analitico['% Acumulado'], name="Acumulado", yaxis="y2", line=dict(color="#ef4444", width=3)))
-                fig_pareto.update_layout(title="Pareto", yaxis=dict(title="R$"), yaxis2=dict(overlaying="y", side="right", range=[0, 105]), showlegend=False)
+                fig_pareto.add_trace(go.Bar(x=df_analitico['Descrição'], y=df_analitico['Valor_Abs'], name="Gasto Individual", marker_color='#334155'))
+                fig_pareto.add_trace(go.Scatter(x=df_analitico['Descrição'], y=df_analitico['% Acumulado'], name="% Acumulado", yaxis="y2", line=dict(color="#ef4444", width=3)))
+                fig_pareto.update_layout(title="Gráfico de Pareto - Esforço vs Resultado", yaxis=dict(title="Valor em R$"), yaxis2=dict(title="Percentual Acumulado", overlaying="y", side="right", range=[0, 105]), showlegend=False)
                 st.plotly_chart(fig_pareto, use_container_width=True)
+
+                # --- EXPLOSÃO ANALÍTICA ---
+                st.subheader("🔥 Explosão de Contas (Detalhamento)")
+                
+                with st.expander(f"🔴 EXPLODIR CLASSE A ({len(res_a)} itens críticos)"):
+                    st.dataframe(res_a[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
+                
+                with st.expander(f"🟡 EXPLODIR CLASSE B ({len(res_b)} itens intermediários)"):
+                    st.dataframe(res_b[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
+                
+                with st.expander(f"🟢 EXPLODIR CLASSE C ({len(res_c)} itens operacionais)"):
+                    st.dataframe(res_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
 
 # --- ABA 8: CONSULTORIA IA ---
 with aba8:
@@ -548,8 +561,7 @@ with aba8:
                 """
                 
                 try:
-                    # Kowalski, aqui usamos a chamada estável e direta.
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel(model_name='gemini-1.5-flash')
                     response = model.generate_content(prompt)
                     st.markdown("---")
                     st.markdown("### 📝 Parecer do Consultor")
