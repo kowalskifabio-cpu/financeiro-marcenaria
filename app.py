@@ -1,3 +1,4 @@
+# STATUS DO SCRIPT: v11.0 (INTEGRIDADE TOTAL) | DATA: 01/04/2026 | HORA: 14:15
 import streamlit as st
 import pandas as pd
 import gspread
@@ -8,12 +9,17 @@ import io
 import time
 from datetime import datetime
 import calendar
- 
+import google.generativeai as genai
+
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
- 
+
+# Configuração da IA - Kowalski
+if "gemini_api_key" in st.secrets:
+    genai.configure(api_key=st.secrets["gemini_api_key"])
+
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
- 
+
 @st.cache_resource
 def get_gspread_client():
     try:
@@ -21,27 +27,31 @@ def get_gspread_client():
             st.error("❌ Chave 'gcp_service_account' não encontrada nos Secrets.")
             return None
         info = dict(st.secrets["gcp_service_account"])
+        # Limpeza da chave PEM para evitar erro de InvalidByte no Python 3.13
         info["private_key"] = info["private_key"].replace("\\n", "\n")
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
     except Exception as e:
         st.error(f"Erro ao autorizar Google: {e}")
         return None
- 
+
 client = get_gspread_client()
- 
+
 @st.cache_resource
 def abrir_planilha(key):
     try:
-        return client.open_by_key(key)
+        if client:
+            return client.open_by_key(key)
+        return None
     except Exception as e:
         st.error(f"Erro ao abrir a planilha (Cota do Google): {e}")
         return None
- 
+
+# ID fixo da planilha do Kowalski
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
- 
-# --- FUNÇÃO DE LIMPEZA DE CONTA (PRESERVAÇÃO DO .10) ---
+
+# --- FUNÇÕES DE LIMPEZA E FORMATAÇÃO ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
     if '/' in v or '-' in v: 
@@ -55,16 +65,12 @@ def limpar_conta_blindado(valor, nivel):
         p = v.split('.')
         p0 = p[0].zfill(2)
         p1 = p[1]
-        if len(p1) == 1:
-            v = f"{p0}.{p1}0"
-        else:
-            v = f"{p0}.{p1}"
+        v = f"{p0}.{p1}0" if len(p1) == 1 else f"{p0}.{p1}"
             
     if nivel in [2, 3] and not v.startswith('0') and (len(v) == 1 or ('.' in v and len(v.split('.')[0]) == 1)):
         v = '0' + v
     return v
- 
-# --- FORMATAÇÃO BRASILEIRA ---
+
 def formatar_moeda_br(val):
     if not isinstance(val, (int, float)): return val
     valor_abs = abs(val)
@@ -75,7 +81,6 @@ def formatar_pct(val):
     if not isinstance(val, (int, float)): return val
     return f"{val:.1f}%"
 
-# --- FILTRO DE LINHAS ZERADAS ---
 def filtrar_linhas_zeradas(df, colunas_valores):
     df = df.copy()
     df['zerado'] = df[colunas_valores].abs().sum(axis=1) == 0
@@ -95,7 +100,6 @@ def filtrar_linhas_zeradas(df, colunas_valores):
             
     return df.drop(index=list(remover_indices)).drop(columns=['zerado'])
 
-# --- CACHE DE ABAS ---
 @st.cache_data(ttl=600) 
 def listar_abas_existentes():
     try:
@@ -103,11 +107,11 @@ def listar_abas_existentes():
     except:
         time.sleep(2)
         return [w.title for w in spreadsheet.worksheets()]
- 
+
 st.title("📊 Gestor Financeiro - Status Marcenaria")
- 
+
 aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas"])
- 
+
 with aba1:
     col_m, col_a = st.columns(2)
     meses_lista = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
@@ -116,39 +120,39 @@ with aba1:
     arq = st.file_uploader("Subir Excel do Sistema", type=["xlsx"])
     
     if arq and st.button("🚀 Salvar Período"):
-        df = pd.read_excel(arq)
-        df.columns = [str(c).strip() for c in df.columns]
+        df_carga = pd.read_excel(arq)
+        df_carga.columns = [str(c).strip() for c in df_carga.columns]
         
-        if 'Data Baixa' in df.columns:
-            df['Data Baixa'] = pd.to_datetime(df['Data Baixa'], errors='coerce')
+        if 'Data Baixa' in df_carga.columns:
+            df_carga['Data Baixa'] = pd.to_datetime(df_carga['Data Baixa'], errors='coerce')
             mes_num = meses_lista.index(m_ref) + 1
             ultimo_dia = calendar.monthrange(a_ref, mes_num)[1]
             data_inicio = datetime(a_ref, mes_num, 1)
             data_fim = datetime(a_ref, mes_num, ultimo_dia)
-            fora_do_periodo = df[(df['Data Baixa'] < data_inicio) | (df['Data Baixa'] > data_fim)]
+            fora_do_periodo = df_carga[(df_carga['Data Baixa'] < data_inicio) | (df_carga['Data Baixa'] > data_fim)]
             if not fora_do_periodo.empty:
                 st.error(f"❌ CARGA ABORTADA: Datas fora de {m_ref}/{a_ref} detectadas.")
                 st.stop()
- 
-        if 'Histórico' in df.columns:
-            total_antes = len(df)
-            df = df[~df['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
-            removidos = total_antes - len(df)
+
+        if 'Histórico' in df_carga.columns:
+            total_antes = len(df_carga)
+            df_carga = df_carga[~df_carga['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
+            removidos = total_antes - len(df_carga)
             if removidos > 0:
                 st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
- 
+
         df_base_check = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
         contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
-        df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
-        contas_carga = set(df['Conta_ID'].unique())
+        df_carga['Conta_ID'] = df_carga['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
+        contas_carga = set(df_carga['Conta_ID'].unique())
         contas_faltantes = contas_carga - contas_base
         
         if contas_faltantes:
             st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base'.")
             st.write(list(contas_faltantes))
             st.stop()
- 
-        df['Valor_Final'] = df.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
+
+        df_carga['Valor_Final'] = df_carga.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
         
         nome_aba = f"{m_ref}_{a_ref}"
         try:
@@ -156,19 +160,23 @@ with aba1:
             ws.clear()
         except:
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
-        ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
+        
+        # --- CORREÇÃO DO InvalidJSONError ---
+        # Limpa NaNs e converte para lista de strings puras para o gspread
+        dados_final = [df_carga.columns.tolist()] + df_carga.fillna('').astype(str).values.tolist()
+        ws.update(dados_final)
+        
         st.cache_data.clear()
         st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
- 
-# --- FILTROS SIDEBAR ---
+     # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
 abas_existentes = listar_abas_existentes()
 ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027, 2024], index=0)
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
- 
+
 meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
 meses_sel = st.sidebar.multiselect("Meses (Filtro Geral)", meses_disponiveis, default=meses_disponiveis)
- 
+
 @st.cache_data(ttl=600)
 def obter_centros_custo(abas_tuple): 
     centros = set()
@@ -179,11 +187,11 @@ def obter_centros_custo(abas_tuple):
                 centros.update(df_m['Centro de Custo'].astype(str).unique())
         except: pass
     return sorted(list(centros))
- 
+
 lista_cc = obter_centros_custo(tuple(abas_existentes))
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
- 
+
 @st.cache_data(ttl=600)
 def carregar_aba_base():
     try:
@@ -200,7 +208,7 @@ def processar_bi(ano, meses, filtros_cc):
     df_base.columns = [str(c).strip() for c in df_base.columns]
     df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
     df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
- 
+
     for m in meses:
         try:
             df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
@@ -219,11 +227,11 @@ def processar_bi(ano, meses, filtros_cc):
             for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
                 df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
         except: df_base[m] = 0.0
- 
+
     df_base['ACUMULADO'] = df_base[meses].sum(axis=1)
     df_base['MÉDIA'] = df_base[meses].mean(axis=1)
     return df_base, meses
- 
+
 def gerar_dados_pizza(df, nivel, limite=10):
     dados = df[(df['Nivel'] == nivel) & (df['ACUMULADO'] < 0)].copy()
     dados['Abs_Acumulado'] = dados['ACUMULADO'].abs()
@@ -234,7 +242,7 @@ def gerar_dados_pizza(df, nivel, limite=10):
         outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
         return pd.concat([principais, outros_df], ignore_index=True)
     return dados
- 
+
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento", value=False, key="ocultar_aba2")
@@ -255,7 +263,7 @@ with aba2:
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
             st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
- 
+
 with aba3:
     st.subheader("Indicadores de Gestão")
     if st.button("📈 Ver Dashboard"):
@@ -339,8 +347,6 @@ with aba4:
             df_all = pd.concat(lista_dfs, ignore_index=True)
             df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
             
-            # --- LÓGICA DE RATEIO (SOBRE TODAS AS OBRAS DO MÊS) ---
-            # Agrupamos primeiro TUDO para calcular o rateio correto
             res_cc_full = df_all.groupby('Centro de Custo').apply(lambda x: pd.Series({
                 'Receitas': x[x['Conta_ID'].astype(str).str.startswith('01')]['Valor_Final'].sum(),
                 'Despesa Direta': x[x['Conta_ID'].astype(str).str.startswith('02')]['Valor_Final'].sum(),
@@ -349,11 +355,7 @@ with aba4:
             if usar_rateio and not df_rateio_config.empty:
                 map_logica = dict(zip(df_rateio_config.iloc[:, 1], df_rateio_config.iloc[:, 0]))
                 res_cc_full['Logica'] = res_cc_full['Centro de Custo'].map(map_logica).fillna('obra')
-                
-                # 1. Soma o Bolo de Rateio (Doador)
                 bolo_rateio = res_cc_full[res_cc_full['Logica'] == 'rateio']['Despesa Direta'].sum()
-                
-                # 2. Base de Receptores (Obras)
                 receptores_full = res_cc_full[res_cc_full['Logica'] == 'obra'].copy()
                 total_desp_receptores = receptores_full['Despesa Direta'].sum()
                 
@@ -363,7 +365,6 @@ with aba4:
                 else:
                     res_cc_full['Rateio Estrutura'] = 0.0
                 
-                # Oculta doadores para o relatório final
                 res_cc_final = res_cc_full[res_cc_full['Logica'] != 'rateio'].copy()
                 res_cc_final['Resultado Real'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta'] + res_cc_final['Rateio Estrutura']
                 cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Rateio Estrutura', 'Resultado Real']
@@ -372,13 +373,10 @@ with aba4:
                 res_cc_final['Resultado'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta']
                 cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Resultado']
 
-            # --- FILTRO VISUAL (APLICADO SOMENTE APÓS O CÁLCULO DO RATEIO) ---
             if "Todos" not in cc_sel and cc_sel:
                 res_cc_final = res_cc_final[res_cc_final['Centro de Custo'].isin(cc_sel)]
 
             res_cc_final = res_cc_final.sort_values(by=cols_view[-1])
-            
-            # Linha de Total Consolidado
             somas = res_cc_final[cols_view[1:]].sum()
             linha_t = pd.DataFrame([['TOTAL CONSOLIDADO'] + somas.tolist()], columns=cols_view)
             res_cc_final = pd.concat([linha_t, res_cc_final], ignore_index=True)
@@ -395,11 +393,11 @@ with aba5:
     ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5")
     c_p1, c_p2 = st.columns(2)
     with c_p1:
-        anos_a = st.multiselect("Anos A", anos_existentes_plan, key="aa")
-        meses_a = st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="ma")
+        aa = st.multiselect("Anos A", [2026, 2025, 2027, 2024], key="aa_c")
+        ma = st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="ma_c")
     with c_p2:
-        anos_b = st.multiselect("Anos B", anos_existentes_plan, key="ab")
-        meses_b = st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mb")
+        ab = st.multiselect("Anos B", [2026, 2025, 2027, 2024], key="ab_c")
+        mb = st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mb_c")
         
     if st.button("🔄 Comparar"):
         df_base_c = carregar_aba_base().copy()
@@ -420,7 +418,7 @@ with aba5:
                         except: pass
                 return map_p
                 
-            m_a, m_b = calc_per(anos_a, meses_a), calc_per(anos_b, meses_b)
+            m_a, m_b = calc_per(aa, ma), calc_per(ab, mb)
             df_base_c['PERÍODO A'] = df_base_c['Conta'].map(m_a).fillna(0)
             df_base_c['PERÍODO B'] = df_base_c['Conta'].map(m_b).fillna(0)
             
@@ -449,7 +447,7 @@ with aba6:
         if len(abas_sort) >= 2:
             mes_atual_aba = abas_sort[0]
             meses_historico = abas_sort[1:4]
-            st.write(f"**Analisando:** {mes_atual_aba} vs Média de ({', '.join(meses_historico)})")
+            st.write(f"**Analisando:** {mes_atual_aba} vs Média Histórica")
             
             df_base_alert = carregar_aba_base().copy()
             if not df_base_alert.empty:
@@ -481,7 +479,7 @@ with aba6:
                         with st.expander(f"🚨 Alerta: {row['Descrição']} - Estouro de {formatar_moeda_br(row['Desvio'])}"):
                             c1, c2, c3 = st.columns(3)
                             c1.metric("Gasto Atual", formatar_moeda_br(row['Atual']))
-                            c2.metric("Média 3 Meses", formatar_moeda_br(row['Media_Hist']))
-                            perc_estouro = (abs(row['Atual'])/abs(row['Media_Hist'])-1)*100 if row['Media_Hist'] != 0 else 0
-                            c3.metric("Aumento %", f"{perc_estouro:.1f}%", delta_color="inverse")
-                else: st.success("✅ Tudo sob controle.")
+                            c2.metric("Média Histórica", formatar_moeda_br(row['Media_Hist']))
+                            p_estouro = (abs(row['Atual'])/abs(row['Media_Hist'])-1)*100 if row['Media_Hist'] != 0 else 0
+                            c3.metric("Aumento %", f"{p_estouro:.1f}%", delta_color="inverse")
+                else: st.success("✅ Tudo sob controle nos alertas dinâmicos.")
