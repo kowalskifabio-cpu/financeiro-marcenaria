@@ -419,85 +419,77 @@ with aba4:
 
 with aba5:
     st.subheader("⚖️ Comparativo de Períodos Independente")
-    ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5_soberana")
+    ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5_v16_4")
     
-    # Seleção de Períodos interna da aba
     c_p1, c_p2 = st.columns(2)
     with c_p1:
-        st.markdown("**Período A (Base)**")
-        aa = st.multiselect("Anos A", [2024, 2025, 2026, 2027], key="aa_v16_3")
-        ma = st.multiselect("Meses A", meses_lista, default=meses_lista, key="ma_v16_3")
+        aa = st.multiselect("Anos A", [2024, 2025, 2026, 2027], key="aa_v16_4")
+        ma = st.multiselect("Meses A", meses_lista, default=meses_lista, key="ma_v16_4")
     with c_p2:
-        st.markdown("**Período B (Comparação)**")
-        ab = st.multiselect("Anos B", [2024, 2025, 2026, 2027], key="ab_v16_3")
-        mb = st.multiselect("Meses B", meses_lista, default=meses_lista, key="mb_v16_3")
+        ab = st.multiselect("Anos B", [2024, 2025, 2026, 2027], key="ab_v16_4")
+        mb = st.multiselect("Meses B", meses_lista, default=meses_lista, key="mb_v16_4")
         
-    if st.button("🔄 Executar Comparativo", key="btn_aba5_soberana"):
+    if st.button("🔄 Executar Comparativo", key="btn_aba5_v16_4"):
+        # Limpeza de cache para evitar o erro do "reboot"
+        st.cache_data.clear()
+        
         df_base_c = carregar_aba_base().copy()
         if not df_base_c.empty:
-            # Padronização da Base
             df_base_c.columns = [str(c).strip() for c in df_base_c.columns]
             df_base_c = df_base_c.rename(columns={df_base_c.columns[0]: 'Conta', df_base_c.columns[1]: 'Descrição', df_base_c.columns[2]: 'Nivel'})
-            df_base_c['Conta'] = df_base_c['Conta'].astype(str).str.strip()
             
-            # Função de cálculo que ignora a Sidebar e busca globalmente
+            # BLINDAGEM DE HIERARQUIA: Garante que 1.01 vire 01.01 para somar os filhos
+            df_base_c['Conta'] = df_base_c.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str).str.strip()
+            
             def calc_soberano(anos_alvo, meses_alvo):
                 map_res = {}
-                # Criamos a lista de nomes de abas que queremos buscar
                 abas_desejadas = [f"{m}_{a}" for a in anos_alvo for m in meses_alvo]
-                
                 for aba_nome in abas_desejadas:
-                    # Verifica se a aba realmente existe no Google Sheets
                     if aba_nome in abas_existentes:
                         try:
                             df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
                             df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
-                            
-                            # Filtro de Centro de Custo (da Sidebar) ainda se aplica aqui
                             if "Todos" not in cc_sel and cc_sel:
                                 if 'Centro de Custo' in df_m.columns:
                                     df_m = df_m[df_m['Centro de Custo'].isin(cc_sel)]
                             
-                            # Agrupamento por Conta (Texto puro)
+                            # Mantendo a conta exata do Excel para casar com o Nível 4 da Base
                             df_m['ID_TEXTO'] = df_m['Conta_ID'].astype(str).str.strip()
                             somas = df_m.groupby('ID_TEXTO')['Valor_Final'].sum().to_dict()
-                            
                             for conta, valor in somas.items():
                                 map_res[conta] = map_res.get(conta, 0) + valor
                         except: pass
                 return map_res
 
-            # Processamento dos dois blocos de dados
             dados_a = calc_soberano(aa, ma)
             dados_b = calc_soberano(ab, mb)
             
-            # Mapeamento para a tabela principal
+            # 1. Primeiro carregamos os valores no Nível 4 (Analítico)
             df_base_c['PERÍODO A'] = df_base_c['Conta'].map(dados_a).fillna(0)
             df_base_c['PERÍODO B'] = df_base_c['Conta'].map(dados_b).fillna(0)
             
-            # Consolidação da Hierarquia (Níveis 1, 2 e 3 somam o Nível 4)
+            # 2. Agora somamos para cima de forma recursiva (O segredo do erro da imagem)
             for n in [3, 2, 1]:
                 for idx, row in df_base_c[df_base_c['Nivel'] == n].iterrows():
+                    # Buscamos todos os Níveis 4 que começam com o código do pai
+                    # Ex: Se o pai é 01.01, buscamos tudo que começa com 01.01.
                     pref = str(row['Conta']).strip() + "."
                     df_base_c.at[idx, 'PERÍODO A'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO A'].sum()
                     df_base_c.at[idx, 'PERÍODO B'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO B'].sum()
-            
-            # Cálculo de variações
+
             df_base_c['DIFERENÇA'] = df_base_c['PERÍODO B'] - df_base_c['PERÍODO A']
             df_base_c['VAR %'] = df_base_c.apply(lambda x: (x['DIFERENÇA']/abs(x['PERÍODO A'])*100) if x['PERÍODO A'] != 0 else 0, axis=1)
             
             if ocultar_aba5:
                 df_base_c = filtrar_linhas_zeradas(df_base_c, ['PERÍODO A', 'PERÍODO B'])
             
-            # Estilização
             def style_comp(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
             
-            cols_exibir = ['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']
-            st.dataframe(df_base_c[cols_exibir].style.apply(style_comp, axis=1).format({
+            st.dataframe(df_base_c[['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']].style.apply(style_comp, axis=1).format({
                 'PERÍODO A': formatar_moeda_br, 
                 'PERÍODO B': formatar_moeda_br, 
                 'DIFERENÇA': formatar_moeda_br, 
