@@ -261,25 +261,76 @@ with aba2:
             st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
 
 with aba3:
-    st.subheader("Indicadores de Gestão")
-    if st.button("📈 Ver Dashboard", key="btn_aba3"):
+    st.subheader("🎯 Indicadores de Gestão")
+    if st.button("📈 Ver Dashboard Completo", key="btn_aba3_completo"):
         df_ind, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_ind is not None:
+            # 1. MÉTRICAS DE TOPO
             rec = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
             desp = df_ind[df_ind['Conta'].str.startswith('02') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
             lucro = rec + desp
             rent_val = (lucro/rec*100) if rec > 0 else 0
+            
             c1, c2, c3 = st.columns(3)
-            c1.metric("Faturamento", formatar_moeda_br(rec))
-            c2.metric("Despesa", formatar_moeda_br(desp))
+            c1.metric("Faturamento Total", formatar_moeda_br(rec))
+            c2.metric("Despesa Total", formatar_moeda_br(desp))
             c3.metric("Lucro Líquido", formatar_moeda_br(lucro), delta=f"{rent_val:.1f}% Rentabilidade")
+            
             st.divider()
+            
+            # 2. EVOLUÇÃO MENSAL
             df_chart = df_ind[(df_ind['Nivel'] == 2) & (df_ind['Conta'].isin(['01', '02']))].copy()
             df_melted = df_chart.melt(id_vars=['Descrição'], value_vars=meses_exibir, var_name='Mês', value_name='Valor')
             fig_evol = px.bar(df_melted, x='Mês', y=df_melted['Valor'].abs(), color='Descrição', barmode='group',
-                            color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'}, text_auto='.2s', title="Evolução Mensal")
+                            color_discrete_map={'RECEITAS': '#22c55e', 'DESPESAS': '#ef4444'}, text_auto='.2s', title="Evolução Mensal (R$)")
             st.plotly_chart(fig_evol, use_container_width=True)
 
+            st.divider()
+
+            # 3. AS DUAS ROSCAS E OS TOP 10 DETALHADOS
+            col_top_n3, col_top_n4 = st.columns(2)
+            
+            with col_top_n3:
+                st.write("### 📉 Maiores Grupos (Nível 3)")
+                df_pizza3 = gerar_dados_pizza(df_ind, 3) # Agrupa o resto em "Outros"
+                fig_p3 = px.pie(df_pizza3, values='Abs_Acumulado', names='Descrição', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
+                st.plotly_chart(fig_p3, use_container_width=True)
+                
+                st.write("**Top 10 Gastos por Grupo:**")
+                # Lista real dos 10 maiores sem o agrupamento "Outros" para conferência
+                top10_n3 = df_ind[(df_ind['Nivel'] == 3) & (df_ind['ACUMULADO'] < 0)].copy()
+                top10_n3['Gasto'] = top10_n3['ACUMULADO'].abs()
+                top10_n3 = top10_n3.sort_values(by='Gasto', ascending=False).head(10)
+                st.table(top10_n3[['Descrição', 'ACUMULADO']].rename(columns={'ACUMULADO': 'Valor'}).style.format({'Valor': formatar_moeda_br}))
+
+            with col_top_n4:
+                st.write("### 🔍 Maiores Detalhes (Nível 4)")
+                df_pizza4 = gerar_dados_pizza(df_ind, 4)
+                fig_p4 = px.pie(df_pizza4, values='Abs_Acumulado', names='Descrição', hole=0.4, color_discrete_sequence=px.colors.sequential.YlOrRd)
+                st.plotly_chart(fig_p4, use_container_width=True)
+                
+                st.write("**Top 10 Contas Analíticas:**")
+                top10_n4 = df_ind[(df_ind['Nivel'] == 4) & (df_ind['ACUMULADO'] < 0)].copy()
+                top10_n4['Gasto'] = top10_n4['ACUMULADO'].abs()
+                top10_n4 = top10_n4.sort_values(by='Gasto', ascending=False).head(10)
+                st.table(top10_n4[['Descrição', 'ACUMULADO']].rename(columns={'ACUMULADO': 'Valor'}).style.format({'Valor': formatar_moeda_br}))
+
+            st.divider()
+
+            # 4. TABELA DE COMPOSIÇÃO SOBRE RECEITA (ANÁLISE VERTICAL)
+            st.write("### 📊 Composição das Despesas s/ Receita Líquida")
+            df_perc = df_ind[df_ind['Nivel'] == 2].copy()
+            df_perc['% s/ Receita'] = df_perc.apply(lambda x: (abs(x['ACUMULADO'])/rec*100) if rec > 0 else 0, axis=1)
+            
+            # Filtra apenas o que é despesa para a tabela de composição
+            df_comp_view = df_perc[df_perc['Conta'] != '01'].sort_values(by='% s/ Receita', ascending=False)
+            
+            fig_bar_perc = px.bar(df_comp_view, x='Descrição', y='% s/ Receita', text_auto='.1f', 
+                                 color='Descrição', title="Impacto das Despesas (%)", color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig_bar_perc, use_container_width=True)
+            
+            st.write("**Detalhamento da Composição:**")
+            st.dataframe(df_comp_view[['Descrição', 'ACUMULADO', '% s/ Receita']].style.format({'ACUMULADO': formatar_moeda_br, '% s/ Receita': '{:.1f}%'}), use_container_width=True)
 with aba4:
     st.subheader("🏢 Análise de Obras e Rateio Dinâmico")
     
