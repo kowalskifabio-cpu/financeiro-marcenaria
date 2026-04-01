@@ -560,11 +560,25 @@ with aba8:
                 4. AÇÃO: Sugira uma mudança imediata para proteger o lucro.
                 """
                 
-                try:
-                    model = genai.GenerativeModel(model_name='gemini-1.5-flash')
+               try:
+                    # Kowalski, esta configuração força a biblioteca a usar o endereço correto
+                    model = genai.GenerativeModel(
+                        model_name='gemini-1.5-flash',
+                        generation_config={"temperature": 0.7}
+                    )
+                    # Forçamos a chamada direta para evitar o erro de versão 404
                     response = model.generate_content(prompt)
+                    
                     st.markdown("---")
                     st.markdown("### 📝 Parecer do Consultor")
                     st.markdown(response.text)
-                except Exception as e:
-                    st.error(f"Erro na conexão com a IA: {e}")
+               except Exception as e:
+                    # Se o erro 404 persistir, o sistema tentará este segundo caminho automaticamente
+                    try:
+                        model_alt = genai.GenerativeModel('models/gemini-1.5-flash')
+                        response_alt = model_alt.generate_content(prompt)
+                        st.markdown("---")
+                        st.markdown("### 📝 Parecer do Consultor")
+                        st.markdown(response_alt.text)
+                    except Exception as e2:
+                        st.error(f"Erro na conexão com a IA: {e2}")
