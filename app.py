@@ -585,7 +585,7 @@ with aba8:
             st.stop()
         
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        model = genai.GenerativeModel('gemini-pro') # Modelo rápido e eficiente
+        model = genai.GenerativeModel('gemini-1.5-flash') # Modelo rápido e eficiente
 
         # 2. Coleta de Dados para Contexto (Baseado no que foi processado nas outras abas)
         # Vamos buscar os dados que o sistema já calculou para não gastar processamento
