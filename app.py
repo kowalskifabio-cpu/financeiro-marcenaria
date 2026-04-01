@@ -104,7 +104,7 @@ def listar_abas_existentes():
         time.sleep(5)
         try: return [w.title for w in spreadsheet.worksheets()]
         except: return []
-            st.title("📊 Gestor Financeiro - Status Marcenaria")
+st.title("📊 Gestor Financeiro - Status Marcenaria")
 
 aba1, aba2, aba3, aba4, aba5, aba6, aba7 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC"])
 
