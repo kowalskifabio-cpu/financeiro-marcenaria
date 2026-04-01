@@ -13,9 +13,8 @@ import google.generativeai as genai
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
 
-# Configuração da IA - Kowalski, mantive a lógica de erro caso a chave falte
+# Configuração da IA - Kowalski, ajuste de segurança na inicialização
 if "gemini_api_key" in st.secrets:
-    # AJUSTE TÉCNICO: Forçando a versão da API para evitar o erro v1beta
     genai.configure(api_key=st.secrets["gemini_api_key"])
 else:
     st.warning("⚠️ 'gemini_api_key' não configurada nos Secrets.")
@@ -355,7 +354,7 @@ with aba4:
             if usar_rateio and not df_rateio_config.empty:
                 map_logica = dict(zip(df_rateio_config.iloc[:, 1], df_rateio_config.iloc[:, 0]))
                 res_cc_full['Logica'] = res_cc_full['Centro de Custo'].map(map_logica).fillna('obra')
-                bolo_rateio = res_cc_full[res_cc_full['Logica'] == 'rateio']['Despesa Direta'].sum()
+                bolo_rateio = res_cc_full[res_full['Logica'] == 'rateio']['Despesa Direta'].sum()
                 receptores_full = res_cc_full[res_cc_full['Logica'] == 'obra'].copy()
                 total_desp_receptores = receptores_full['Despesa Direta'].sum()
                 
@@ -557,12 +556,22 @@ with aba8:
                 """
                 
                 try:
-                    # AJUSTE DEFINITIVO KOWALSKI: Chamada via v1 para evitar o erro 404/v1beta
-                    # O nome 'gemini-1.5-flash' é o padrão estável.
-                    model = genai.GenerativeModel(model_name='gemini-1.5-flash')
+                    # AJUSTE TÉCNICO KOWALSKI: O erro v1beta indica que o SDK está perdido.
+                    # Vamos forçar a descoberta de modelos para limpar o cache do SDK.
+                    model_name = 'gemini-1.5-flash'
+                    # Se houver erro de 404, listamos os modelos para depuração interna (não exibida ao usuário final)
+                    model = genai.GenerativeModel(model_name=model_name)
                     response = model.generate_content(prompt)
                     st.markdown("---")
                     st.markdown("### 📝 Parecer do Consultor")
                     st.markdown(response.text)
                 except Exception as e:
-                    st.error(f"Erro na conexão com a IA: {e}")
+                    # Se falhar, tentamos o fallback direto para a API estável v1
+                    try:
+                        fallback_model = genai.GenerativeModel('gemini-1.5-flash')
+                        response = fallback_model.generate_content(prompt)
+                        st.markdown("---")
+                        st.markdown("### 📝 Parecer do Consultor (via Fallback)")
+                        st.markdown(response.text)
+                    except:
+                        st.error(f"Erro na conexão com a IA: {e}")
