@@ -419,52 +419,59 @@ with aba4:
 
 with aba5:
     st.subheader("⚖️ Comparativo de Períodos")
-    ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5_v16")
+    ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5_vFinal")
     c_p1, c_p2 = st.columns(2)
     with c_p1:
-        aa = st.multiselect("Anos A", [2024, 2025, 2026, 2027], key="aa_comp_v16")
-        ma = st.multiselect("Meses A", meses_lista, default=meses_lista, key="ma_comp_v16")
+        aa = st.multiselect("Anos A", [2024, 2025, 2026, 2027], key="aa_comp_vFinal")
+        ma = st.multiselect("Meses A", meses_lista, default=meses_lista, key="ma_comp_vFinal")
     with c_p2:
-        ab = st.multiselect("Anos B", [2024, 2025, 2026, 2027], key="ab_comp_v16")
-        mb = st.multiselect("Meses B", meses_lista, default=meses_lista, key="mb_comp_v16")
+        ab = st.multiselect("Anos B", [2024, 2025, 2026, 2027], key="ab_comp_vFinal")
+        mb = st.multiselect("Meses B", meses_lista, default=meses_lista, key="mb_comp_vFinal")
         
-    if st.button("🔄 Comparar Períodos", key="btn_aba5_v16"):
+    if st.button("🔄 Comparar Períodos", key="btn_aba5_vFinal"):
         df_base_c = carregar_aba_base().copy()
         if not df_base_c.empty:
             df_base_c.columns = [str(c).strip() for c in df_base_c.columns]
             df_base_c = df_base_c.rename(columns={df_base_c.columns[0]: 'Conta', df_base_c.columns[1]: 'Descrição', df_base_c.columns[2]: 'Nivel'})
-            # Força a conta da base a ser string limpa
-            df_base_c['Conta'] = df_base_c.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str).str.strip()
             
-            def calc_per_blindado(anos, meses):
+            # GARANTIA 1: Força a conta da aba BASE a ser texto puro e sem espaços
+            df_base_c['Conta'] = df_base_c['Conta'].astype(str).str.strip()
+            
+            def calc_per_totalmente_blindado(anos, meses):
                 map_p = {}
                 for aba in [f"{m}_{a}" for a in anos for m in meses]:
                     if aba in abas_existentes:
                         try:
+                            # Lê a aba do mês selecionado
                             df_m = pd.DataFrame(spreadsheet.worksheet(aba).get_all_records())
                             df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
-                            # CORREÇÃO CRÍTICA: Força Conta_ID a ser string e remove espaços
-                            df_m['Conta_ID'] = df_m['Conta_ID'].astype(str).str.strip()
-                            px = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+                            
+                            # GARANTIA 2: Força a conta vinda do EXCEL a ser texto puro e sem espaços
+                            # Aqui não inventamos moda: pegamos o código EXATO que está na coluna Conta_ID
+                            df_m['Conta_ID_Limpa'] = df_m['Conta_ID'].astype(str).str.strip()
+                            
+                            px = df_m.groupby('Conta_ID_Limpa')['Valor_Final'].sum().to_dict()
                             for k, v in px.items():
-                                k_str = str(k).strip()
-                                map_p[k_str] = map_p.get(k_str, 0) + v
+                                map_p[k] = map_p.get(k, 0) + v
                         except: pass
                 return map_p
                 
-            m_a = calc_per_blindado(aa, ma)
-            m_b = calc_per_blindado(ab, mb)
+            # Executa a soma dos períodos A e B
+            m_a = calc_per_totalmente_blindado(aa, ma)
+            m_b = calc_per_totalmente_blindado(ab, mb)
             
+            # GARANTIA 3: O "Casamento" dos dados agora é feito entre Texto vs Texto
             df_base_c['PERÍODO A'] = df_base_c['Conta'].map(m_a).fillna(0)
             df_base_c['PERÍODO B'] = df_base_c['Conta'].map(m_b).fillna(0)
             
-            # Recalcula os níveis superiores (1, 2, 3) com base nos novos valores do Nível 4
+            # Recalcula os níveis superiores (1, 2, 3) para que a soma bata com o Nível 4
             for n in [3, 2, 1]:
                 for idx, row in df_base_c[df_base_c['Nivel'] == n].iterrows():
-                    pref = str(row['Conta']).strip() + "."
-                    df_base_c.at[idx, 'PERÍODO A'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO A'].sum()
-                    df_base_c.at[idx, 'PERÍODO B'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(pref))]['PERÍODO B'].sum()
+                    prefixo_busca = str(row['Conta']).strip() + "."
+                    df_base_c.at[idx, 'PERÍODO A'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(prefixo_busca))]['PERÍODO A'].sum()
+                    df_base_c.at[idx, 'PERÍODO B'] = df_base_c[(df_base_c['Nivel'] == 4) & (df_base_c['Conta'].str.startswith(prefixo_busca))]['PERÍODO B'].sum()
             
+            # Cálculos de Diferença e Porcentagem
             df_base_c['DIFERENÇA'] = df_base_c['PERÍODO B'] - df_base_c['PERÍODO A']
             df_base_c['VAR %'] = df_base_c.apply(lambda x: (x['DIFERENÇA']/abs(x['PERÍODO A'])*100) if x['PERÍODO A'] != 0 else 0, axis=1)
             
@@ -477,14 +484,14 @@ with aba5:
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
             
-            cols_show = ['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']
-            st.dataframe(df_base_c[cols_show].style.apply(style_comp, axis=1).format({
+            # Exibição Final
+            cols_finais = ['Nivel', 'Conta', 'Descrição', 'PERÍODO A', 'PERÍODO B', 'DIFERENÇA', 'VAR %']
+            st.dataframe(df_base_c[cols_finais].style.apply(style_comp, axis=1).format({
                 'PERÍODO A': formatar_moeda_br, 
                 'PERÍODO B': formatar_moeda_br, 
                 'DIFERENÇA': formatar_moeda_br, 
                 'VAR %': formatar_pct
             }), use_container_width=True, height=700)
-
 with aba6:
     st.subheader("⚠️ Central de Alertas Preventivos")
     if abas_existentes:
