@@ -1,4 +1,4 @@
-# STATUS DO SCRIPT: v11.0 (INTEGRIDADE TOTAL) | DATA: 01/04/2026 | HORA: 14:15
+# STATUS DO SCRIPT: v12.0 (INTEGRIDADE TOTAL + BLINDAGEM DE COTA) | DATA: 01/04/2026 | HORA: 14:35
 import streamlit as st
 import pandas as pd
 import gspread
@@ -27,7 +27,6 @@ def get_gspread_client():
             st.error("❌ Chave 'gcp_service_account' não encontrada nos Secrets.")
             return None
         info = dict(st.secrets["gcp_service_account"])
-        # Limpeza da chave PEM para evitar erro de InvalidByte no Python 3.13
         info["private_key"] = info["private_key"].replace("\\n", "\n")
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
@@ -37,17 +36,21 @@ def get_gspread_client():
 
 client = get_gspread_client()
 
+# --- FUNÇÃO DE ABERTURA COM RETRY (PREVENÇÃO DE ESTOURO DE COTA) ---
 @st.cache_resource
 def abrir_planilha(key):
-    try:
-        if client:
-            return client.open_by_key(key)
-        return None
-    except Exception as e:
-        st.error(f"Erro ao abrir a planilha (Cota do Google): {e}")
-        return None
+    for tentativa in range(3):
+        try:
+            if client:
+                return client.open_by_key(key)
+        except Exception as e:
+            if "quota" in str(e).lower() or "429" in str(e):
+                time.sleep(5)  # Pausa de segurança para o Google liberar a cota
+                continue
+            st.error(f"Erro ao abrir a planilha (Cota do Google): {e}")
+        time.sleep(2)
+    return None
 
-# ID fixo da planilha do Kowalski
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
 
@@ -105,8 +108,11 @@ def listar_abas_existentes():
     try:
         return [w.title for w in spreadsheet.worksheets()]
     except:
-        time.sleep(2)
-        return [w.title for w in spreadsheet.worksheets()]
+        time.sleep(3)
+        try:
+            return [w.title for w in spreadsheet.worksheets()]
+        except:
+            return []
 
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
@@ -141,7 +147,15 @@ with aba1:
             if removidos > 0:
                 st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
 
-        df_base_check = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+        # Validação da Base com tratamento de erro
+        try:
+            ws_base = spreadsheet.worksheet("Base")
+            df_base_check = pd.DataFrame(ws_base.get_all_records())
+        except Exception as e:
+            time.sleep(5) # Pausa para cota
+            ws_base = spreadsheet.worksheet("Base")
+            df_base_check = pd.DataFrame(ws_base.get_all_records())
+
         contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
         df_carga['Conta_ID'] = df_carga['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
         contas_carga = set(df_carga['Conta_ID'].unique())
@@ -159,16 +173,16 @@ with aba1:
             ws = spreadsheet.worksheet(nome_aba)
             ws.clear()
         except:
+            time.sleep(2) # Pausa para evitar conflito de criação
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
         
-        # --- CORREÇÃO DO InvalidJSONError ---
-        # Limpa NaNs e converte para lista de strings puras para o gspread
+        # Correção JSON Blindada
         dados_final = [df_carga.columns.tolist()] + df_carga.fillna('').astype(str).values.tolist()
         ws.update(dados_final)
         
         st.cache_data.clear()
         st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
-     # --- FILTROS SIDEBAR ---
+        # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
 abas_existentes = listar_abas_existentes()
 ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027, 2024], index=0)
@@ -197,9 +211,11 @@ def carregar_aba_base():
     try:
         return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
     except:
-        time.sleep(2)
-        try: return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
-        except: return pd.DataFrame()
+        time.sleep(3)
+        try:
+            return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+        except:
+            return pd.DataFrame()
 
 def processar_bi(ano, meses, filtros_cc):
     if not meses: return None, []
@@ -393,11 +409,11 @@ with aba5:
     ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5")
     c_p1, c_p2 = st.columns(2)
     with c_p1:
-        aa = st.multiselect("Anos A", [2026, 2025, 2027, 2024], key="aa_c")
-        ma = st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="ma_c")
+        anos_a = st.multiselect("Anos A", [2026, 2025, 2027, 2024], key="aa_c")
+        meses_a = st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="ma_c")
     with c_p2:
-        ab = st.multiselect("Anos B", [2026, 2025, 2027, 2024], key="ab_c")
-        mb = st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mb_c")
+        anos_b = st.multiselect("Anos B", [2026, 2025, 2027, 2024], key="ab_c")
+        meses_b = st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mb_c")
         
     if st.button("🔄 Comparar"):
         df_base_c = carregar_aba_base().copy()
@@ -418,7 +434,7 @@ with aba5:
                         except: pass
                 return map_p
                 
-            m_a, m_b = calc_per(aa, ma), calc_per(ab, mb)
+            m_a, m_b = calc_per(anos_a, meses_a), calc_per(anos_b, meses_b)
             df_base_c['PERÍODO A'] = df_base_c['Conta'].map(m_a).fillna(0)
             df_base_c['PERÍODO B'] = df_base_c['Conta'].map(m_b).fillna(0)
             
