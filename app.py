@@ -1,4 +1,5 @@
 # STATUS DO SCRIPT: v16.0 - OBRAS INDEPENDENTES + BLINDAGEM TOTAL | DATA: 01/04/2026
+import google.generativeai as genai
 import streamlit as st
 import pandas as pd
 import gspread
