@@ -1,4 +1,4 @@
-# STATUS DO SCRIPT: v14.0 (RESTAURAÇÃO TOTAL + CARGA BLINDADA) | DATA: 01/04/2026
+# STATUS DO SCRIPT: v15.0 - SOLUÇÃO DEFINITIVA (RESTAURAÇÃO TOTAL) | DATA: 01/04/2026
 import streamlit as st
 import pandas as pd
 import gspread
@@ -9,14 +9,9 @@ import io
 import time
 from datetime import datetime
 import calendar
-import google.generativeai as genai
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
-
-# Configuração da IA - Kowalski
-if "gemini_api_key" in st.secrets:
-    genai.configure(api_key=st.secrets["gemini_api_key"])
 
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
@@ -38,22 +33,20 @@ client = get_gspread_client()
 
 @st.cache_resource(ttl=3600)
 def abrir_planilha(key):
-    for tentativa in range(4):
+    for tentativa in range(3):
         try:
             if client:
                 return client.open_by_key(key)
         except Exception as e:
-            if "quota" in str(e).lower() or "429" in str(e) or "APIError" in str(e):
-                time.sleep(10) # Pausa de segurança para o novo projeto
+            if "quota" in str(e).lower() or "429" in str(e):
+                time.sleep(10)
                 continue
-            st.error(f"Erro ao abrir a planilha (Cota do Google): {e}")
-        time.sleep(2)
     return None
 
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
 
-# --- FUNÇÕES DE LIMPEZA E FORMATAÇÃO (PRESERVAÇÃO TOTAL) ---
+# --- FUNÇÃO DE LIMPEZA DE CONTA (PRESERVAÇÃO DO .10) ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
     if '/' in v or '-' in v: 
@@ -87,23 +80,19 @@ def filtrar_linhas_zeradas(df, colunas_valores):
     df['zerado'] = df[colunas_valores].abs().sum(axis=1) == 0
     remover_indices = set(df[(df['Nivel'] == 4) & (df['zerado'])].index)
     for idx, row in df[df['Nivel'] == 3].iterrows():
-        pref = str(row['Conta']).strip() + "."
-        filhos = df[(df['Nivel'] == 4) & (df['Conta'].str.startswith(pref))]
+        prefixo = str(row['Conta']).strip() + "."
+        filhos = df[(df['Nivel'] == 4) & (df['Conta'].str.startswith(prefixo))]
         if not filhos.empty and filhos['zerado'].all(): remover_indices.add(idx)
     for idx, row in df[df['Nivel'] == 2].iterrows():
-        pref = str(row['Conta']).strip() + "."
-        filhos_n3 = df[(df['Nivel'] == 3) & (df['Conta'].str.startswith(pref))]
+        prefixo = str(row['Conta']).strip() + "."
+        filhos_n3 = df[(df['Nivel'] == 3) & (df['Conta'].str.startswith(prefixo))]
         if not filhos_n3.empty and all(i in remover_indices for i in filhos_n3.index): remover_indices.add(idx)
     return df.drop(index=list(remover_indices)).drop(columns=['zerado'])
 
 @st.cache_data(ttl=600) 
 def listar_abas_existentes():
-    try:
-        return [w.title for w in spreadsheet.worksheets()]
-    except:
-        time.sleep(5)
-        try: return [w.title for w in spreadsheet.worksheets()]
-        except: return []
+    try: return [w.title for w in spreadsheet.worksheets()]
+    except: return []
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
 aba1, aba2, aba3, aba4, aba5, aba6, aba7 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC"])
@@ -116,41 +105,34 @@ with aba1:
     arq = st.file_uploader("Subir Excel do Sistema", type=["xlsx"])
     
     if arq and st.button("🚀 Salvar Período"):
-        df_upload = pd.read_excel(arq)
-        df_upload.columns = [str(c).strip() for c in df_upload.columns]
+        df_carga = pd.read_excel(arq)
+        df_carga.columns = [str(c).strip() for c in df_carga.columns]
         
-        if 'Data Baixa' in df_upload.columns:
-            df_upload['Data Baixa'] = pd.to_datetime(df_upload['Data Baixa'], errors='coerce')
+        if 'Data Baixa' in df_carga.columns:
+            df_carga['Data Baixa'] = pd.to_datetime(df_carga['Data Baixa'], errors='coerce')
             mes_num = meses_lista.index(m_ref) + 1
             ultimo_dia = calendar.monthrange(a_ref, mes_num)[1]
             data_inicio = datetime(a_ref, mes_num, 1)
             data_fim = datetime(a_ref, mes_num, ultimo_dia)
-            fora_do_periodo = df_upload[(df_upload['Data Baixa'] < data_inicio) | (df_upload['Data Baixa'] > data_fim)]
+            fora_do_periodo = df_carga[(df_carga['Data Baixa'] < data_inicio) | (df_carga['Data Baixa'] > data_fim)]
             if not fora_do_periodo.empty:
                 st.error(f"❌ CARGA ABORTADA: Datas fora de {m_ref}/{a_ref} detectadas.")
                 st.stop()
 
-        if 'Histórico' in df_upload.columns:
-            total_antes = len(df_upload)
-            df_upload = df_upload[~df_upload['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
-            removidos = total_antes - len(df_upload)
+        if 'Histórico' in df_carga.columns:
+            total_antes = len(df_carga)
+            df_carga = df_carga[~df_carga['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
+            removidos = total_antes - len(df_carga)
             if removidos > 0:
                 st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
 
-        # Validação da Base (Com cache para não estourar o novo projeto)
-        @st.cache_data(ttl=3600)
-        def carregar_base_val():
-            try:
-                ws_b = spreadsheet.worksheet("Base")
-                return pd.DataFrame(ws_b.get_all_records())
-            except:
-                time.sleep(5)
-                return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
-
-        df_base_check = carregar_base_val()
+        # Validação da Base (Garantindo que a Conta_ID seja lida como String)
+        ws_base_val = spreadsheet.worksheet("Base")
+        df_base_check = pd.DataFrame(ws_base_val.get_all_records())
         contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
-        df_upload['Conta_ID'] = df_upload['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
-        contas_carga = set(df_upload['Conta_ID'].unique())
+        
+        df_carga['Conta_ID'] = df_carga['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
+        contas_carga = set(df_carga['Conta_ID'].unique())
         contas_faltantes = contas_carga - contas_base
         
         if contas_faltantes:
@@ -158,19 +140,18 @@ with aba1:
             st.write(list(contas_faltantes))
             st.stop()
 
-        df_upload['Valor_Final'] = df_upload.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
+        df_carga['Valor_Final'] = df_carga.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
         
         nome_aba = f"{m_ref}_{a_ref}"
         try:
             ws = spreadsheet.worksheet(nome_aba)
             ws.clear()
         except:
-            time.sleep(5) 
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
         
-        # Correção JSON Blindada: Conversão total para String nativa para o gspread
-        dados_final = [df_upload.columns.tolist()] + df_upload.fillna('').astype(str).values.tolist()
-        ws.update(dados_final)
+        # Blindagem JSON: Converter tudo para String para o gspread não quebrar no Python 3.13
+        dados_upload = [df_carga.columns.tolist()] + df_carga.fillna('').astype(str).values.tolist()
+        ws.update(dados_upload)
         
         st.cache_data.clear()
         st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
@@ -203,7 +184,7 @@ def carregar_aba_base():
     try:
         return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
     except:
-        time.sleep(3)
+        time.sleep(2)
         try: return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
         except: return pd.DataFrame()
 
@@ -219,12 +200,19 @@ def processar_bi(ano, meses, filtros_cc):
         try:
             df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
             df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+            
+            # FILTRO DE CENTRO DE CUSTO - Aplicado na extração para garantir integridade
             if "Todos" not in filtros_cc and filtros_cc:
                 if 'Centro de Custo' in df_m.columns:
                     df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
+            
+            # Garantir que a Conta_ID seja comparada como String (Correção Jan/Fev)
+            df_m['Conta_ID'] = df_m['Conta_ID'].astype(str).str.strip()
             mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+            
             df_base[m] = 0.0
             df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
+            
             for n in [3, 2]:
                 for idx, row in df_base[df_base['Nivel'] == n].iterrows():
                     pref = str(row['Conta']).strip() + "."
@@ -332,16 +320,23 @@ with aba4:
     
     if st.button("📊 Processar Obras", key="btn_aba4"):
         lista_dfs = []
+        # CORREÇÃO: Utilizar anos e meses selecionados na Sidebar para alinhar com o BI
         for aba_nome in [f"{m}_{a}" for a in [ano_sel] for m in meses_sel]:
             if aba_nome in abas_existentes:
                 try:
                     df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
-                    if not df_m.empty: lista_dfs.append(df_m)
+                    if not df_m.empty: 
+                        # APLICAR FILTRO DE CENTRO DE CUSTO NO INÍCIO (Corrigir imagem 2)
+                        if "Todos" not in cc_sel and cc_sel:
+                            if 'Centro de Custo' in df_m.columns:
+                                df_m = df_m[df_m['Centro de Custo'].isin(cc_sel)]
+                        lista_dfs.append(df_m)
                 except: pass
         
         if lista_dfs:
             df_all = pd.concat(lista_dfs, ignore_index=True)
             df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
+            
             res_cc_full = df_all.groupby('Centro de Custo').apply(lambda x: pd.Series({
                 'Receitas': x[x['Conta_ID'].astype(str).str.startswith('01')]['Valor_Final'].sum(),
                 'Despesa Direta': x[x['Conta_ID'].astype(str).str.startswith('02')]['Valor_Final'].sum(),
@@ -367,17 +362,27 @@ with aba4:
                 res_cc_final['Resultado'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta']
                 cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Resultado']
 
+            res_cc_final = res_cc_final.sort_values(by=cols_view[-1])
+            somas = res_cc_final[cols_view[1:]].sum()
+            linha_t = pd.DataFrame([['TOTAL CONSOLIDADO'] + somas.tolist()], columns=cols_view)
+            res_cc_final = pd.concat([linha_t, res_cc_final], ignore_index=True)
+
             st.dataframe(res_cc_final[cols_view].style.format({c: formatar_moeda_br for c in cols_view[1:]}), use_container_width=True)
+            
+            buffer_cc = io.BytesIO()
+            with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer: res_cc_final.to_excel(writer, index=False)
+            st.download_button(label="📥 Exportar Obras (Excel)", data=buffer_cc.getvalue(), file_name="Obras_Rateio.xlsx")
+        else: st.warning("Sem dados para o período selecionado ou filtros de Centro de Custo vazios.")
 with aba5:
     st.subheader("⚖️ Comparativo de Períodos")
     ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5")
     c_p1, c_p2 = st.columns(2)
     with c_p1:
-        aa = st.multiselect("Anos A", [2026, 2025, 2027, 2024], key="aa_c")
-        ma = st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="ma_c")
+        anos_a = st.multiselect("Anos A", [2026, 2025, 2027, 2024], key="aa_comp")
+        meses_a = st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="ma_comp")
     with c_p2:
-        ab = st.multiselect("Anos B", [2026, 2025, 2027, 2024], key="ab_c")
-        mb = st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mb_c")
+        anos_b = st.multiselect("Anos B", [2026, 2025, 2027, 2024], key="ab_comp")
+        meses_b = st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mb_comp")
         
     if st.button("🔄 Comparar", key="btn_aba5"):
         df_base_c = carregar_aba_base().copy()
@@ -394,11 +399,11 @@ with aba5:
                             df_m = pd.DataFrame(spreadsheet.worksheet(aba).get_all_records())
                             df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
                             parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-                            for k,v in parciais.items(): map_p[k] = map_p.get(k,0)+v
+                            for k,v in parciais.items(): map_p[str(k).strip()] = map_p.get(str(k).strip(),0)+v
                         except: pass
                 return map_p
                 
-            m_a, m_b = calc_per(aa, ma), calc_per(ab, mb)
+            m_a, m_b = calc_per(anos_a, meses_a), calc_per(anos_b, meses_b)
             df_base_c['PERÍODO A'] = df_base_c['Conta'].map(m_a).fillna(0)
             df_base_c['PERÍODO B'] = df_base_c['Conta'].map(m_b).fillna(0)
             
@@ -425,71 +430,85 @@ with aba6:
     if abas_existentes:
         abas_sort = sorted([a for a in abas_existentes if '_' in a], key=lambda x: (int(x.split('_')[1]), meses_lista.index(x.split('_')[0])), reverse=True)
         if len(abas_sort) >= 2:
-            mes_atual_aba = abas_sort[0]
-            meses_historico = abas_sort[1:4]
-            st.write(f"**Analisando:** {mes_atual_aba} vs Média de ({', '.join(meses_historico)})")
+            mes_at = abas_sort[0]
+            meses_hi = abas_sort[1:4] # Últimos 3 meses
+            st.write(f"**Analisando:** {mes_at} vs Média de ({', '.join(meses_hi)})")
+            
             df_base_alert = carregar_aba_base().copy()
-            if not df_base_alert.empty:
-                df_base_alert.columns = [str(c).strip() for c in df_base_alert.columns]
-                df_base_alert = df_base_alert.rename(columns={df_base_alert.columns[0]: 'Conta', df_base_alert.columns[1]: 'Descrição', df_base_alert.columns[2]: 'Nivel'})
-                df_base_alert['Conta'] = df_base_alert.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
-                
-                def get_vals(lista_abas):
-                    map_v = {}
-                    for a in lista_abas:
-                        try:
-                            df_m = pd.DataFrame(spreadsheet.worksheet(a).get_all_records())
-                            df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
-                            parciais = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-                            for k,v in parciais.items(): map_v[k] = map_v.get(k,0)+v
-                        except: pass
-                    return map_v
-                
-                v_at, v_hi = get_vals([mes_atual_aba]), get_vals(meses_historico)
-                df_base_alert['Atual'] = df_base_alert['Conta'].map(v_at).fillna(0)
-                df_base_alert['Media_Hist'] = df_base_alert['Conta'].map(v_hi).fillna(0) / len(meses_historico)
-                
-                alertas = df_base_alert[(df_base_alert['Nivel'] == 3) & (df_base_alert['Conta'].str.startswith('02'))].copy()
-                alertas['Desvio'] = alertas['Atual'] - alertas['Media_Hist']
-                estouros = alertas[alertas['Desvio'] < -100].sort_values(by='Desvio')
-                
-                if not estouros.empty:
-                    for idx, row in estouros.iterrows():
-                        with st.expander(f"🚨 Alerta: {row['Descrição']} - Estouro de {formatar_moeda_br(row['Desvio'])}"):
-                            c1, c2, c3 = st.columns(3)
-                            c1.metric("Gasto Atual", formatar_moeda_br(row['Atual']))
-                            c2.metric("Média Histórica", formatar_moeda_br(row['Media_Hist']))
-                            p_estouro = (abs(row['Atual'])/abs(row['Media_Hist'])-1)*100 if row['Media_Hist'] != 0 else 0
-                            c3.metric("Aumento %", f"{p_estouro:.1f}%", delta_color="inverse")
-                else: st.success("✅ Tudo sob controle nos alertas dinâmicos.")
+            df_base_alert.columns = [str(c).strip() for c in df_base_alert.columns]
+            df_base_alert = df_base_alert.rename(columns={df_base_alert.columns[0]: 'Conta', df_base_alert.columns[1]: 'Descrição', df_base_alert.columns[2]: 'Nivel'})
+            df_base_alert['Conta'] = df_base_alert.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
+            
+            def get_vals_alert(lista):
+                m_v = {}
+                for a in lista:
+                    try:
+                        df_m = pd.DataFrame(spreadsheet.worksheet(a).get_all_records())
+                        df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+                        px = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+                        for k,v in px.items(): m_v[str(k).strip()] = m_v.get(str(k).strip(),0)+v
+                    except: pass
+                return m_v
+            
+            v_atual = get_vals_alert([mes_at])
+            v_media = get_vals_alert(meses_hi)
+            
+            df_base_alert['Atual'] = df_base_alert['Conta'].map(v_atual).fillna(0)
+            df_base_alert['Media_Hist'] = df_base_alert['Conta'].map(v_media).fillna(0) / len(meses_hi)
+            
+            # Alertas apenas para Despesas (02) Nível 3
+            alertas = df_base_alert[(df_base_alert['Nivel'] == 3) & (df_base_alert['Conta'].str.startswith('02'))].copy()
+            alertas['Desvio'] = alertas['Atual'] - alertas['Media_Hist']
+            estouros = alertas[alertas['Desvio'] < -100].sort_values(by='Desvio')
+            
+            if not estouros.empty:
+                for idx, row in estouros.iterrows():
+                    with st.expander(f"🚨 Alerta: {row['Descrição']} - Estouro de {formatar_moeda_br(row['Desvio'])}"):
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Gasto Atual", formatar_moeda_br(row['Atual']))
+                        c2.metric("Média 3 Meses", formatar_moeda_br(row['Media_Hist']))
+                        perc = (abs(row['Atual'])/abs(row['Media_Hist'])-1)*100 if row['Media_Hist'] != 0 else 0
+                        c3.metric("Aumento %", f"{perc:.1f}%", delta_color="inverse")
+            else: st.success("✅ Tudo sob controle.")
 
 with aba7:
     st.subheader("📉 Curva ABC de Despesas (Nível 4)")
+    st.markdown("Identificação do peso financeiro (80/20) no período selecionado.")
+    
     if st.button("🔍 Gerar Curva ABC", key="btn_aba7"):
         df_abc, _ = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_abc is not None:
-            df_analitico = df_abc[(df_abc['Nivel'] == 4) & (df_abc['Conta'].str.startswith('02'))].copy()
-            df_analitico['Valor_Abs'] = df_analitico['ACUMULADO'].abs()
-            df_analitico = df_analitico[df_analitico['Valor_Abs'] > 0].sort_values(by='Valor_Abs', ascending=False)
+            df_an = df_abc[(df_abc['Nivel'] == 4) & (df_abc['Conta'].str.startswith('02'))].copy()
+            df_an['Valor_Abs'] = df_an['ACUMULADO'].abs()
+            df_an = df_an[df_an['Valor_Abs'] > 0].sort_values(by='Valor_Abs', ascending=False)
             
-            total_geral = df_analitico['Valor_Abs'].sum()
-            if total_geral > 0:
-                df_analitico['% Individual'] = (df_analitico['Valor_Abs'] / total_geral) * 100
-                df_analitico['% Acumulado'] = df_analitico['% Individual'].cumsum()
-                df_analitico['Classe'] = df_analitico['% Acumulado'].apply(lambda x: 'A' if x <= 80.1 else ('B' if x <= 95.1 else 'C'))
+            tot = df_an['Valor_Abs'].sum()
+            if tot > 0:
+                df_an['% Individual'] = (df_an['Valor_Abs'] / tot) * 100
+                df_an['% Acumulado'] = df_an['% Individual'].cumsum()
+                df_an['Classe'] = df_an['% Acumulado'].apply(lambda x: 'A' if x <= 80.1 else ('B' if x <= 95.1 else 'C'))
                 
                 c_a, c_b, c_c = st.columns(3)
-                res_a, res_b, res_c = df_analitico[df_analitico['Classe'] == 'A'], df_analitico[df_analitico['Classe'] == 'B'], df_analitico[df_analitico['Classe'] == 'C']
+                r_a = df_an[df_an['Classe'] == 'A'].copy()
+                r_b = df_an[df_an['Classe'] == 'B'].copy()
+                r_c = df_an[df_an['Classe'] == 'C'].copy()
                 
-                for col, classe, df_cl, color, bcolor in zip([c_a, c_b, c_c], ['A', 'B', 'C'], [res_a, res_b, res_c], ['#ef4444', '#f59e0b', '#22c55e'], ['#fee2e2', '#fef3c7', '#dcfce7']):
-                    col.markdown(f"<div style='background-color: {bcolor}; padding: 20px; border-radius: 10px; border-left: 5px solid {color};'><h3 style='color: {color}; margin-top:0;'>CLASSE {classe}</h3><p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-df_cl['Valor_Abs'].sum())}</p><p>{len(df_cl)} contas</p></div>", unsafe_allow_html=True)
+                for col, cl, d_cl, color, bcolor in zip([c_a, c_b, c_c], ['A', 'B', 'C'], [r_a, r_b, r_c], ['#ef4444', '#f59e0b', '#22c55e'], ['#fee2e2', '#fef3c7', '#dcfce7']):
+                    col.markdown(f"<div style='background-color: {bcolor}; padding: 20px; border-radius: 10px; border-left: 5px solid {color};'><h3 style='color: {color}; margin-top:0;'>CLASSE {cl}</h3><p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-d_cl['Valor_Abs'].sum())}</p><p>{len(d_cl)} contas</p></div>", unsafe_allow_html=True)
                 
                 st.divider()
-                fig_pareto = go.Figure()
-                fig_pareto.add_trace(go.Bar(x=df_analitico['Descrição'], y=df_analitico['Valor_Abs'], name="Gasto Individual", marker_color='#334155'))
-                fig_pareto.add_trace(go.Scatter(x=df_analitico['Descrição'], y=df_analitico['% Acumulado'], name="% Acumulado", yaxis="y2", line=dict(color="#ef4444", width=3)))
-                fig_pareto.update_layout(title="Gráfico de Pareto", yaxis=dict(title="Valor R$"), yaxis2=dict(title="%", overlaying="y", side="right", range=[0, 105]), showlegend=False)
-                st.plotly_chart(fig_pareto, use_container_width=True)
+                fig_p = go.Figure()
+                fig_p.add_trace(go.Bar(x=df_an['Descrição'], y=df_an['Valor_Abs'], name="Gasto", marker_color='#334155'))
+                fig_p.add_trace(go.Scatter(x=df_an['Descrição'], y=df_an['% Acumulado'], name="%", yaxis="y2", line=dict(color="#ef4444", width=3)))
+                fig_p.update_layout(title="Pareto", yaxis=dict(title="R$"), yaxis2=dict(title="%", overlaying="y", side="right", range=[0, 105]), showlegend=False)
+                st.plotly_chart(fig_p, use_container_width=True)
                 
-                with st.expander("🔥 Detalhamento ABC"):
-                    st.dataframe(df_analitico[['Classe', 'Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
+                st.subheader("🔥 Explosão de Contas (Detalhamento)")
+                # CORREÇÃO: Filtro isolado por classe nos expanders
+                with st.expander(f"🔴 EXPLODIR CLASSE A ({len(r_a)} contas)"):
+                    st.dataframe(r_a[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
+                with st.expander(f"🟡 EXPLODIR CLASSE B ({len(r_b)} contas)"):
+                    st.dataframe(r_b[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
+                with st.expander(f"🟢 EXPLODIR CLASSE C ({len(r_c)} contas)"):
+                    st.dataframe(r_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
+            else: st.warning("Sem dados de despesa.")
