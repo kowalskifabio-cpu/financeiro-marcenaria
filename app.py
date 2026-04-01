@@ -100,7 +100,7 @@ def carregar_logica_rateio():
         return pd.DataFrame()
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
-aba1, aba2, aba3, aba4, aba5, aba6, aba7 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC"])
+aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC", "🤖 Analista IA"])
 
 with aba1:
     col_m, col_a = st.columns(2)
