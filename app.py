@@ -8,16 +8,16 @@ import io
 import time
 from datetime import datetime
 import calendar
-import google.generativeai as genai # Melhoria: Import da IA
+import google.generativeai as genai
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
 
-# Melhoria: Configuração da Chave da IA
+# Configuração da IA
 if "gemini_api_key" in st.secrets:
     genai.configure(api_key=st.secrets["gemini_api_key"])
 else:
-    st.warning("⚠️ 'gemini_api_key' não configurada nos Secrets. A Aba 8 não funcionará.")
+    st.warning("⚠️ 'gemini_api_key' não configurada nos Secrets.")
 
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
@@ -113,7 +113,6 @@ def listar_abas_existentes():
 
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
-# Melhoria: Adição da Aba 8 na lista
 aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC", "🤖 Analisar BI"])
 
 with aba1:
@@ -557,6 +556,7 @@ with aba8:
                 """
                 
                 try:
+                    # CORREÇÃO DO MODELO AQUI: Removido o prefixo 'models/' que estava causando o 404 em algumas versões
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(prompt)
                     st.markdown("---")
