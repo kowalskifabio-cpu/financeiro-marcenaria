@@ -8,19 +8,12 @@ import io
 import time
 from datetime import datetime
 import calendar
-import google.generativeai as genai
-
+ 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
-
-# Configuração da IA - Kowalski
-if "gemini_api_key" in st.secrets:
-    genai.configure(api_key=st.secrets["gemini_api_key"])
-else:
-    st.warning("⚠️ 'gemini_api_key' não configurada nos Secrets.")
-
+ 
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-
+ 
 @st.cache_resource
 def get_gspread_client():
     try:
@@ -34,9 +27,9 @@ def get_gspread_client():
     except Exception as e:
         st.error(f"Erro ao autorizar Google: {e}")
         return None
-
+ 
 client = get_gspread_client()
-
+ 
 @st.cache_resource
 def abrir_planilha(key):
     try:
@@ -44,10 +37,10 @@ def abrir_planilha(key):
     except Exception as e:
         st.error(f"Erro ao abrir a planilha (Cota do Google): {e}")
         return None
-
+ 
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
-
+ 
 # --- FUNÇÃO DE LIMPEZA DE CONTA (PRESERVAÇÃO DO .10) ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
@@ -70,7 +63,7 @@ def limpar_conta_blindado(valor, nivel):
     if nivel in [2, 3] and not v.startswith('0') and (len(v) == 1 or ('.' in v and len(v.split('.')[0]) == 1)):
         v = '0' + v
     return v
-
+ 
 # --- FORMATAÇÃO BRASILEIRA ---
 def formatar_moeda_br(val):
     if not isinstance(val, (int, float)): return val
@@ -110,11 +103,11 @@ def listar_abas_existentes():
     except:
         time.sleep(2)
         return [w.title for w in spreadsheet.worksheets()]
-
+ 
 st.title("📊 Gestor Financeiro - Status Marcenaria")
-
-aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC", "🤖 Analisar BI"])
-
+ 
+aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas"])
+ 
 with aba1:
     col_m, col_a = st.columns(2)
     meses_lista = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
@@ -136,14 +129,14 @@ with aba1:
             if not fora_do_periodo.empty:
                 st.error(f"❌ CARGA ABORTADA: Datas fora de {m_ref}/{a_ref} detectadas.")
                 st.stop()
-
+ 
         if 'Histórico' in df.columns:
             total_antes = len(df)
             df = df[~df['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
             removidos = total_antes - len(df)
             if removidos > 0:
                 st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
-
+ 
         df_base_check = pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
         contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
         df['Conta_ID'] = df['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
@@ -154,7 +147,7 @@ with aba1:
             st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base'.")
             st.write(list(contas_faltantes))
             st.stop()
-
+ 
         df['Valor_Final'] = df.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
         
         nome_aba = f"{m_ref}_{a_ref}"
@@ -163,26 +156,19 @@ with aba1:
             ws.clear()
         except:
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
-        
-        # --- FIX KOWALSKI: Evitando InvalidJSONError ---
-        # Convertemos o DataFrame para uma lista de listas pura de Python
-        cabecalho = df.columns.tolist()
-        valores = df.astype(str).values.tolist()
-        dados_finais = [cabecalho] + valores
-        
-        ws.update(dados_finais)
+        ws.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
         st.cache_data.clear()
         st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
-
+ 
 # --- FILTROS SIDEBAR ---
 st.sidebar.header("Filtros de Análise")
 abas_existentes = listar_abas_existentes()
 ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027, 2024], index=0)
 ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-
+ 
 meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
 meses_sel = st.sidebar.multiselect("Meses (Filtro Geral)", meses_disponiveis, default=meses_disponiveis)
-
+ 
 @st.cache_data(ttl=600)
 def obter_centros_custo(abas_tuple): 
     centros = set()
@@ -193,11 +179,11 @@ def obter_centros_custo(abas_tuple):
                 centros.update(df_m['Centro de Custo'].astype(str).unique())
         except: pass
     return sorted(list(centros))
-
+ 
 lista_cc = obter_centros_custo(tuple(abas_existentes))
 cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
 niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
-
+ 
 @st.cache_data(ttl=600)
 def carregar_aba_base():
     try:
@@ -214,7 +200,7 @@ def processar_bi(ano, meses, filtros_cc):
     df_base.columns = [str(c).strip() for c in df_base.columns]
     df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
     df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
-
+ 
     for m in meses:
         try:
             df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
@@ -233,11 +219,11 @@ def processar_bi(ano, meses, filtros_cc):
             for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
                 df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
         except: df_base[m] = 0.0
-
+ 
     df_base['ACUMULADO'] = df_base[meses].sum(axis=1)
     df_base['MÉDIA'] = df_base[meses].mean(axis=1)
     return df_base, meses
-
+ 
 def gerar_dados_pizza(df, nivel, limite=10):
     dados = df[(df['Nivel'] == nivel) & (df['ACUMULADO'] < 0)].copy()
     dados['Abs_Acumulado'] = dados['ACUMULADO'].abs()
@@ -248,11 +234,11 @@ def gerar_dados_pizza(df, nivel, limite=10):
         outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
         return pd.concat([principais, outros_df], ignore_index=True)
     return dados
-
+ 
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento", value=False, key="ocultar_aba2")
-    if st.button("📊 Gerar Relatório Filtrado", key="btn_aba2"):
+    if st.button("📊 Gerar Relatório Filtrado"):
         df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_res is not None:
             if ocultar_vazios_aba2:
@@ -269,10 +255,10 @@ with aba2:
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
             st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
-
+ 
 with aba3:
     st.subheader("Indicadores de Gestão")
-    if st.button("📈 Ver Dashboard", key="btn_aba3"):
+    if st.button("📈 Ver Dashboard"):
         df_ind, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_ind is not None:
             rec = df_ind[df_ind['Conta'].str.startswith('01') & (df_ind['Nivel'] == 2)]['ACUMULADO'].sum()
@@ -336,11 +322,11 @@ with aba4:
     col_ano_cc, col_mes_cc = st.columns(2)
     with col_ano_cc:
         anos_existentes_plan = sorted(list(set([t.split('_')[1] for t in abas_existentes if '_' in t])), reverse=True)
-        anos_cc = st.multiselect("Anos", anos_existentes_plan, default=anos_existentes_plan[:1], key="cc_ano_obras")
+        anos_cc = st.multiselect("Anos", anos_existentes_plan, default=anos_existentes_plan[:1], key="cc_ano")
     with col_mes_cc:
-        meses_cc = st.multiselect("Meses", ordem_meses, default=ordem_meses, key="cc_mes_obras")
+        meses_cc = st.multiselect("Meses", ordem_meses, default=ordem_meses, key="cc_mes")
     
-    if st.button("📊 Processar Obras", key="btn_aba4"):
+    if st.button("📊 Processar Obras"):
         lista_dfs = []
         for aba_nome in [f"{m}_{a}" for a in anos_cc for m in meses_cc]:
             if aba_nome in abas_existentes:
@@ -353,6 +339,8 @@ with aba4:
             df_all = pd.concat(lista_dfs, ignore_index=True)
             df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
             
+            # --- LÓGICA DE RATEIO (SOBRE TODAS AS OBRAS DO MÊS) ---
+            # Agrupamos primeiro TUDO para calcular o rateio correto
             res_cc_full = df_all.groupby('Centro de Custo').apply(lambda x: pd.Series({
                 'Receitas': x[x['Conta_ID'].astype(str).str.startswith('01')]['Valor_Final'].sum(),
                 'Despesa Direta': x[x['Conta_ID'].astype(str).str.startswith('02')]['Valor_Final'].sum(),
@@ -361,7 +349,11 @@ with aba4:
             if usar_rateio and not df_rateio_config.empty:
                 map_logica = dict(zip(df_rateio_config.iloc[:, 1], df_rateio_config.iloc[:, 0]))
                 res_cc_full['Logica'] = res_cc_full['Centro de Custo'].map(map_logica).fillna('obra')
+                
+                # 1. Soma o Bolo de Rateio (Doador)
                 bolo_rateio = res_cc_full[res_cc_full['Logica'] == 'rateio']['Despesa Direta'].sum()
+                
+                # 2. Base de Receptores (Obras)
                 receptores_full = res_cc_full[res_cc_full['Logica'] == 'obra'].copy()
                 total_desp_receptores = receptores_full['Despesa Direta'].sum()
                 
@@ -371,6 +363,7 @@ with aba4:
                 else:
                     res_cc_full['Rateio Estrutura'] = 0.0
                 
+                # Oculta doadores para o relatório final
                 res_cc_final = res_cc_full[res_cc_full['Logica'] != 'rateio'].copy()
                 res_cc_final['Resultado Real'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta'] + res_cc_final['Rateio Estrutura']
                 cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Rateio Estrutura', 'Resultado Real']
@@ -379,13 +372,17 @@ with aba4:
                 res_cc_final['Resultado'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta']
                 cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Resultado']
 
+            # --- FILTRO VISUAL (APLICADO SOMENTE APÓS O CÁLCULO DO RATEIO) ---
             if "Todos" not in cc_sel and cc_sel:
                 res_cc_final = res_cc_final[res_cc_final['Centro de Custo'].isin(cc_sel)]
 
             res_cc_final = res_cc_final.sort_values(by=cols_view[-1])
+            
+            # Linha de Total Consolidado
             somas = res_cc_final[cols_view[1:]].sum()
             linha_t = pd.DataFrame([['TOTAL CONSOLIDADO'] + somas.tolist()], columns=cols_view)
             res_cc_final = pd.concat([linha_t, res_cc_final], ignore_index=True)
+
             st.dataframe(res_cc_final.style.format({c: formatar_moeda_br for c in cols_view[1:]}), use_container_width=True)
             
             buffer_cc = io.BytesIO()
@@ -398,13 +395,13 @@ with aba5:
     ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5")
     c_p1, c_p2 = st.columns(2)
     with c_p1:
-        anos_a = st.multiselect("Anos A", anos_existentes_plan, key="aa_comp")
-        meses_a = st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="ma_comp")
+        anos_a = st.multiselect("Anos A", anos_existentes_plan, key="aa")
+        meses_a = st.multiselect("Meses A", ordem_meses, default=ordem_meses, key="ma")
     with c_p2:
-        anos_b = st.multiselect("Anos B", anos_existentes_plan, key="ab_comp")
-        meses_b = st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mb_comp")
+        anos_b = st.multiselect("Anos B", anos_existentes_plan, key="ab")
+        meses_b = st.multiselect("Meses B", ordem_meses, default=ordem_meses, key="mb")
         
-    if st.button("🔄 Comparar", key="btn_aba5"):
+    if st.button("🔄 Comparar"):
         df_base_c = carregar_aba_base().copy()
         if not df_base_c.empty:
             df_base_c.columns = [str(c).strip() for c in df_base_c.columns]
@@ -435,7 +432,9 @@ with aba5:
                     
             df_base_c['DIFERENÇA'] = df_base_c['PERÍODO B'] - df_base_c['PERÍODO A']
             df_base_c['VAR %'] = df_base_c.apply(lambda x: (x['DIFERENÇA']/abs(x['PERÍODO A'])*100) if x['PERÍODO A'] != 0 else 0, axis=1)
+            
             if ocultar_aba5: df_base_c = filtrar_linhas_zeradas(df_base_c, ['PERÍODO A', 'PERÍODO B'])
+            
             def style_comp(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
@@ -451,11 +450,13 @@ with aba6:
             mes_atual_aba = abas_sort[0]
             meses_historico = abas_sort[1:4]
             st.write(f"**Analisando:** {mes_atual_aba} vs Média de ({', '.join(meses_historico)})")
+            
             df_base_alert = carregar_aba_base().copy()
             if not df_base_alert.empty:
                 df_base_alert.columns = [str(c).strip() for c in df_base_alert.columns]
                 df_base_alert = df_base_alert.rename(columns={df_base_alert.columns[0]: 'Conta', df_base_alert.columns[1]: 'Descrição', df_base_alert.columns[2]: 'Nivel'})
                 df_base_alert['Conta'] = df_base_alert.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
+                
                 def get_vals(lista_abas):
                     map_v = {}
                     for a in lista_abas:
@@ -466,12 +467,15 @@ with aba6:
                             for k,v in parciais.items(): map_v[k] = map_v.get(k,0)+v
                         except: pass
                     return map_v
+                
                 v_at, v_hi = get_vals([mes_atual_aba]), get_vals(meses_historico)
                 df_base_alert['Atual'] = df_base_alert['Conta'].map(v_at).fillna(0)
                 df_base_alert['Media_Hist'] = df_base_alert['Conta'].map(v_hi).fillna(0) / len(meses_historico)
+                
                 alertas = df_base_alert[(df_base_alert['Nivel'] == 3) & (df_base_alert['Conta'].str.startswith('02'))].copy()
                 alertas['Desvio'] = alertas['Atual'] - alertas['Media_Hist']
                 estouros = alertas[alertas['Desvio'] < -100].sort_values(by='Desvio')
+                
                 if not estouros.empty:
                     for idx, row in estouros.iterrows():
                         with st.expander(f"🚨 Alerta: {row['Descrição']} - Estouro de {formatar_moeda_br(row['Desvio'])}"):
@@ -481,82 +485,3 @@ with aba6:
                             perc_estouro = (abs(row['Atual'])/abs(row['Media_Hist'])-1)*100 if row['Media_Hist'] != 0 else 0
                             c3.metric("Aumento %", f"{perc_estouro:.1f}%", delta_color="inverse")
                 else: st.success("✅ Tudo sob controle.")
-
-with aba7:
-    st.subheader("📉 Curva ABC de Despesas (Nível 4)")
-    st.markdown("Esta análise identifica quais contas representam o maior peso financeiro no período selecionado (80/20).")
-    
-    if st.button("🔍 Gerar Curva ABC", key="btn_aba7"):
-        df_abc, _ = processar_bi(ano_sel, meses_sel, cc_sel)
-        if df_abc is not None:
-            df_analitico = df_abc[(df_abc['Nivel'] == 4) & (df_abc['Conta'].str.startswith('02'))].copy()
-            df_analitico['Valor_Abs'] = df_analitico['ACUMULADO'].abs()
-            df_analitico = df_analitico[df_analitico['Valor_Abs'] > 0].sort_values(by='Valor_Abs', ascending=False)
-            
-            total_geral = df_analitico['Valor_Abs'].sum()
-            if total_geral > 0:
-                df_analitico['% Individual'] = (df_analitico['Valor_Abs'] / total_geral) * 100
-                df_analitico['% Acumulado'] = df_analitico['% Individual'].cumsum()
-                
-                def classificar_abc(acum):
-                    if acum <= 80.1: return 'A'
-                    elif acum <= 95.1: return 'B'
-                    else: return 'C'
-                
-                df_analitico['Classe'] = df_analitico['% Acumulado'].apply(classificar_abc)
-                
-                c_a, c_b, c_c = st.columns(3)
-                res_a = df_analitico[df_analitico['Classe'] == 'A']
-                res_b = df_analitico[df_analitico['Classe'] == 'B']
-                res_c = df_analitico[df_analitico['Classe'] == 'C']
-                
-                c_a.markdown(f"<div style='background-color: #fee2e2; padding: 20px; border-radius: 10px; border-left: 5px solid #ef4444;'><h3 style='color: #991b1b; margin-top:0;'>CLASSE A</h3><p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-res_a['Valor_Abs'].sum())}</p><p style='color: #991b1b;'>{len(res_a)} contas (80%)</p></div>", unsafe_allow_html=True)
-                c_b.markdown(f"<div style='background-color: #fef3c7; padding: 20px; border-radius: 10px; border-left: 5px solid #f59e0b;'><h3 style='color: #92400e; margin-top:0;'>CLASSE B</h3><p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-res_b['Valor_Abs'].sum())}</p><p style='color: #92400e;'>{len(res_b)} contas (15%)</p></div>", unsafe_allow_html=True)
-                c_c.markdown(f"<div style='background-color: #dcfce7; padding: 20px; border-radius: 10px; border-left: 5px solid #22c55e;'><h3 style='color: #166534; margin-top:0;'>CLASSE C</h3><p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-res_c['Valor_Abs'].sum())}</p><p style='color: #166534;'>{len(res_c)} contas (5%)</p></div>", unsafe_allow_html=True)
-                
-                st.divider()
-                fig_pareto = go.Figure()
-                fig_pareto.add_trace(go.Bar(x=df_analitico['Descrição'], y=df_analitico['Valor_Abs'], name="Gasto", marker_color='#334155'))
-                fig_pareto.add_trace(go.Scatter(x=df_analitico['Descrição'], y=df_analitico['% Acumulado'], name="Acumulado", yaxis="y2", line=dict(color="#ef4444", width=3)))
-                fig_pareto.update_layout(title="Pareto", yaxis=dict(title="R$"), yaxis2=dict(overlaying="y", side="right", range=[0, 105]), showlegend=False)
-                st.plotly_chart(fig_pareto, use_container_width=True)
-
-                # --- EXPLOSÃO ANALÍTICA KOWALSKI ---
-                st.subheader("🔥 Explosão de Contas (Detalhamento)")
-                with st.expander(f"🔴 EXPLODIR CLASSE A"):
-                    st.dataframe(res_a[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
-                with st.expander(f"🟡 EXPLODIR CLASSE B"):
-                    st.dataframe(res_b[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
-                with st.expander(f"🟢 EXPLODIR CLASSE C"):
-                    st.dataframe(res_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
-
-# --- ABA 8: CONSULTORIA IA ---
-with aba8:
-    st.subheader("🤖 Consultoria Financeira AI")
-    st.markdown("Clique abaixo para que a IA analise seus números atuais e aponte pontos cegos.")
-    
-    if st.button("🚀 Gerar Relatório Executivo"):
-        with st.spinner("Analisando dados da Status Marcenaria..."):
-            df_ia, _ = processar_bi(ano_sel, meses_sel, cc_sel)
-            if df_ia is not None:
-                rec = df_ia[df_ia['Conta'].str.startswith('01') & (df_ia['Nivel'] == 2)]['ACUMULADO'].sum()
-                desp = df_ia[df_ia['Conta'].str.startswith('02') & (df_ia['Nivel'] == 2)]['ACUMULADO'].sum()
-                lucro = rec + desp
-                top_10 = df_ia[(df_ia['Nivel'] == 4) & (df_ia['Conta'].str.startswith('02'))].sort_values(by='ACUMULADO').head(10)[['Descrição', 'ACUMULADO']]
-                
-                prompt = f"""
-                Você é um consultor sênior da Status Marcenaria. 
-                Analise os dados: Faturamento {formatar_moeda_br(rec)}, Despesa {formatar_moeda_br(desp)}, Lucro {formatar_moeda_br(lucro)}.
-                Maiores Custos: {top_10.to_string(index=False)}.
-                Aponte pontos cegos e sugira ações imediatas para proteger o lucro.
-                """
-                
-                try:
-                    # Kowalski, forçamos a chamada estável direta
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    response = model.generate_content(prompt)
-                    st.markdown("---")
-                    st.markdown("### 📝 Parecer do Consultor")
-                    st.markdown(response.text)
-                except Exception as e:
-                    st.error(f"Erro na conexão com a IA: {e}")
