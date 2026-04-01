@@ -282,18 +282,19 @@ with aba3:
 
 with aba4:
     st.subheader("🏢 Análise de Obras e Rateio Dinâmico")
-    # FILTROS INDEPENDENTES PARA OBRAS (Upgrade v16.0)
+    
+    # 1. FILTROS INDEPENDENTES (Aba Obras não olha para a Sidebar para datas)
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        anos_obras_sel = st.multiselect("Anos da Obra (Acumulado)", [2024, 2025, 2026, 2027], default=[ano_sel], key="anos_obra_indep")
+        anos_obras_sel = st.multiselect("Anos da Obra (Acumulado)", [2024, 2025, 2026, 2027], default=[ano_sel], key="anos_obra_v16")
     with col_f2:
-        meses_obras_sel = st.multiselect("Meses da Obra (Acumulado)", meses_lista, default=meses_lista, key="meses_obra_indep")
+        meses_obras_sel = st.multiselect("Meses da Obra (Acumulado)", meses_lista, default=meses_lista, key="meses_obra_v16")
     
     usar_rateio = st.toggle("🔄 Ativar Visão de Custo Real (Rateio Dinâmico)", value=False)
     
-    if st.button("📊 Processar Obras Acumuladas", key="btn_aba4"):
+    if st.button("📊 Processar Obras Acumuladas", key="btn_aba4_v16"):
         lista_dfs = []
-        # BUSCA GLOBAL: Ignora a sidebar e usa os filtros internos da aba
+        # BUSCA GLOBAL: Pega TUDO dos meses/anos selecionados (Sem filtrar Centro de Custo ainda!)
         for a_obra in anos_obras_sel:
             for m_obra in meses_obras_sel:
                 aba_nome = f"{m_obra}_{a_obra}"
@@ -301,41 +302,68 @@ with aba4:
                     try:
                         df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
                         if not df_m.empty: 
-                            if "Todos" not in cc_sel and cc_sel:
-                                if 'Centro de Custo' in df_m.columns:
-                                    df_m = df_m[df_m['Centro de Custo'].isin(cc_sel)]
                             lista_dfs.append(df_m)
                     except: pass
         
         if lista_dfs:
+            # Consolida a base bruta
             df_all = pd.concat(lista_dfs, ignore_index=True)
             df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
+            df_all['Conta_ID'] = df_all['Conta_ID'].astype(str).str.strip()
+
+            # 2. CÁLCULO DO RATEIO SOBRE A BASE TOTAL (Regra do 100%)
             res_cc_full = df_all.groupby('Centro de Custo').apply(lambda x: pd.Series({
-                'Receitas': x[x['Conta_ID'].astype(str).str.startswith('01')]['Valor_Final'].sum(),
-                'Despesa Direta': x[x['Conta_ID'].astype(str).str.startswith('02')]['Valor_Final'].sum(),
+                'Receitas': x[x['Conta_ID'].str.startswith('01')]['Valor_Final'].sum(),
+                'Despesa Direta': x[x['Conta_ID'].str.startswith('02')]['Valor_Final'].sum(),
             })).reset_index()
 
             if usar_rateio:
-                df_rateio_config = carregar_logica_rateio() # Função definida no início
+                df_rateio_config = carregar_logica_rateio() 
                 if not df_rateio_config.empty:
+                    # Classifica quem é obra, quem é rateio
                     map_logica = dict(zip(df_rateio_config.iloc[:, 1], df_rateio_config.iloc[:, 0]))
                     res_cc_full['Logica'] = res_cc_full['Centro de Custo'].map(map_logica).fillna('obra')
+                    
+                    # Soma o bolo do rateio e a despesa das obras (Mesa Cheia)
                     bolo_rateio = res_cc_full[res_cc_full['Logica'] == 'rateio']['Despesa Direta'].sum()
                     receptores = res_cc_full[res_cc_full['Logica'] == 'obra'].copy()
                     total_desp_receptores = receptores['Despesa Direta'].sum()
+                    
+                    # Distribui o rateio proporcionalmente
                     if abs(total_desp_receptores) > 0:
+                        res_cc_full['Rateio Estrutura'] = 0.0
                         res_cc_full.loc[res_cc_full['Logica'] == 'obra', 'Rateio Estrutura'] = (res_cc_full['Despesa Direta'] / total_desp_receptores) * bolo_rateio
+                    else:
+                        res_cc_full['Rateio Estrutura'] = 0.0
+                    
                     res_cc_final = res_cc_full[res_cc_full['Logica'] != 'rateio'].copy()
                     res_cc_final['Resultado Real'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta'] + res_cc_final.get('Rateio Estrutura', 0)
                     cols_v = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Rateio Estrutura', 'Resultado Real']
-                else: res_cc_final, cols_v = res_cc_full, ['Centro de Custo', 'Receitas', 'Despesa Direta']
+                else: 
+                    res_cc_final, cols_v = res_cc_full, ['Centro de Custo', 'Receitas', 'Despesa Direta']
             else:
                 res_cc_final = res_cc_full.copy()
                 res_cc_final['Resultado'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta']
                 cols_v = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Resultado']
 
+            # 3. FILTRO DE EXIBIÇÃO (SÓ AGORA!)
+            # Se você selecionou obras específicas na sidebar, elas serão filtradas aqui após o cálculo
+            if "Todos" not in cc_sel and cc_sel:
+                res_cc_final = res_cc_final[res_cc_final['Centro de Custo'].isin(cc_sel)]
+
+            # Formatação e Totais
+            res_cc_final = res_cc_final.sort_values(by=cols_v[-1])
+            somas = res_cc_final[cols_v[1:]].sum()
+            linha_t = pd.DataFrame([['TOTAL CONSOLIDADO (FILTRADO)'] + somas.tolist()], columns=cols_v)
+            res_cc_final = pd.concat([linha_t, res_cc_final], ignore_index=True)
+
             st.dataframe(res_cc_final[cols_v].style.format({c: formatar_moeda_br for c in cols_v[1:]}), use_container_width=True)
-        else: st.warning("Sem dados para o período acumulado selecionado.")
+            
+            buffer_cc = io.BytesIO()
+            with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer: res_cc_final.to_excel(writer, index=False)
+            st.download_button(label="📥 Exportar Obras (Excel)", data=buffer_cc.getvalue(), file_name="Obras_CustoReal.xlsx")
+        else:
+            st.warning("Sem dados para o período selecionado.")
 # --- FUNÇÕES DE SUPORTE ADICIONAIS ---
 
 with aba5:
