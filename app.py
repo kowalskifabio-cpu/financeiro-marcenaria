@@ -8,16 +8,16 @@ import io
 import time
 from datetime import datetime
 import calendar
-import google.generativeai as genai # Adicionado para suporte à IA
+import google.generativeai as genai # Melhoria: Import da IA
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
 
-# Configuração da IA usando a chave que você gerou
+# Melhoria: Configuração da Chave da IA
 if "gemini_api_key" in st.secrets:
     genai.configure(api_key=st.secrets["gemini_api_key"])
 else:
-    st.error("❌ Chave 'gemini_api_key' não encontrada nos Secrets. A Aba 8 não funcionará.")
+    st.warning("⚠️ 'gemini_api_key' não configurada nos Secrets. A Aba 8 não funcionará.")
 
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
@@ -113,7 +113,8 @@ def listar_abas_existentes():
 
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
-aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC", "🤖 Consultoria IA"])
+# Melhoria: Adição da Aba 8 na lista
+aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC", "🤖 Analisar BI"])
 
 with aba1:
     col_m, col_a = st.columns(2)
@@ -475,7 +476,6 @@ with aba6:
                             c3.metric("Aumento %", f"{perc_estouro:.1f}%", delta_color="inverse")
                 else: st.success("✅ Tudo sob controle.")
 
-# --- ABA 7: ANÁLISE DE CUSTOS (CURVA ABC) ---
 with aba7:
     st.subheader("📉 Curva ABC de Despesas (Nível 4)")
     st.markdown("Esta análise identifica quais contas representam o maior peso financeiro no período selecionado (80/20).")
@@ -483,7 +483,6 @@ with aba7:
     if st.button("🔍 Gerar Curva ABC", key="btn_aba7"):
         df_abc, _ = processar_bi(ano_sel, meses_sel, cc_sel)
         if df_abc is not None:
-            # Filtramos apenas despesas (Contas que começam com '02') no Nível Analítico (4)
             df_analitico = df_abc[(df_abc['Nivel'] == 4) & (df_abc['Conta'].str.startswith('02'))].copy()
             df_analitico['Valor_Abs'] = df_analitico['ACUMULADO'].abs()
             df_analitico = df_analitico[df_analitico['Valor_Abs'] > 0].sort_values(by='Valor_Abs', ascending=False)
@@ -493,7 +492,6 @@ with aba7:
                 df_analitico['% Individual'] = (df_analitico['Valor_Abs'] / total_geral) * 100
                 df_analitico['% Acumulado'] = df_analitico['% Individual'].cumsum()
                 
-                # Definição das Classes ABC
                 def classificar_abc(acum):
                     if acum <= 80.1: return 'A'
                     elif acum <= 95.1: return 'B'
@@ -501,71 +499,38 @@ with aba7:
                 
                 df_analitico['Classe'] = df_analitico['% Acumulado'].apply(classificar_abc)
                 
-                # Resumo Sintético
                 c_a, c_b, c_c = st.columns(3)
                 res_a = df_analitico[df_analitico['Classe'] == 'A']
                 res_b = df_analitico[df_analitico['Classe'] == 'B']
                 res_c = df_analitico[df_analitico['Classe'] == 'C']
                 
-                c_a.markdown(f"""
-                <div style='background-color: #fee2e2; padding: 20px; border-radius: 10px; border-left: 5px solid #ef4444;'>
-                    <h3 style='color: #991b1b; margin-top:0;'>CLASSE A</h3>
-                    <p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-res_a['Valor_Abs'].sum())}</p>
-                    <p style='color: #991b1b;'>{len(res_a)} contas (80% do custo)</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                c_b.markdown(f"""
-                <div style='background-color: #fef3c7; padding: 20px; border-radius: 10px; border-left: 5px solid #f59e0b;'>
-                    <h3 style='color: #92400e; margin-top:0;'>CLASSE B</h3>
-                    <p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-res_b['Valor_Abs'].sum())}</p>
-                    <p style='color: #92400e;'>{len(res_b)} contas (15% do custo)</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                c_c.markdown(f"""
-                <div style='background-color: #dcfce7; padding: 20px; border-radius: 10px; border-left: 5px solid #22c55e;'>
-                    <h3 style='color: #166534; margin-top:0;'>CLASSE C</h3>
-                    <p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-res_c['Valor_Abs'].sum())}</p>
-                    <p style='color: #166534;'>{len(res_c)} contas (5% do custo)</p>
-                </div>
-                """, unsafe_allow_html=True)
+                c_a.markdown(f"<div style='background-color: #fee2e2; padding: 20px; border-radius: 10px; border-left: 5px solid #ef4444;'><h3 style='color: #991b1b; margin-top:0;'>CLASSE A</h3><p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-res_a['Valor_Abs'].sum())}</p><p style='color: #991b1b;'>{len(res_a)} contas (80%)</p></div>", unsafe_allow_html=True)
+                c_b.markdown(f"<div style='background-color: #fef3c7; padding: 20px; border-radius: 10px; border-left: 5px solid #f59e0b;'><h3 style='color: #92400e; margin-top:0;'>CLASSE B</h3><p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-res_b['Valor_Abs'].sum())}</p><p style='color: #92400e;'>{len(res_b)} contas (15%)</p></div>", unsafe_allow_html=True)
+                c_c.markdown(f"<div style='background-color: #dcfce7; padding: 20px; border-radius: 10px; border-left: 5px solid #22c55e;'><h3 style='color: #166534; margin-top:0;'>CLASSE C</h3><p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-res_c['Valor_Abs'].sum())}</p><p style='color: #166534;'>{len(res_c)} contas (5%)</p></div>", unsafe_allow_html=True)
                 
                 st.divider()
-                
-                # Gráfico de Pareto
                 fig_pareto = go.Figure()
-                fig_pareto.add_trace(go.Bar(x=df_analitico['Descrição'], y=df_analitico['Valor_Abs'], name="Gasto Individual", marker_color='#334155'))
-                fig_pareto.add_trace(go.Scatter(x=df_analitico['Descrição'], y=df_analitico['% Acumulado'], name="% Acumulado", yaxis="y2", line=dict(color="#ef4444", width=3)))
-                fig_pareto.update_layout(title="Gráfico de Pareto - Esforço vs Resultado", yaxis=dict(title="Valor em R$"), yaxis2=dict(title="Percentual Acumulado", overlaying="y", side="right", range=[0, 105]), showlegend=False)
+                fig_pareto.add_trace(go.Bar(x=df_analitico['Descrição'], y=df_analitico['Valor_Abs'], name="Gasto", marker_color='#334155'))
+                fig_pareto.add_trace(go.Scatter(x=df_analitico['Descrição'], y=df_analitico['% Acumulado'], name="Acumulado", yaxis="y2", line=dict(color="#ef4444", width=3)))
+                fig_pareto.update_layout(title="Pareto", yaxis=dict(title="R$"), yaxis2=dict(overlaying="y", side="right", range=[0, 105]), showlegend=False)
                 st.plotly_chart(fig_pareto, use_container_width=True)
                 
-                # --- EXPLOSÃO ANALÍTICA ---
-                st.subheader("🔥 Explosão de Contas (Detalhamento)")
-                
-                with st.expander(f"🔴 EXPLODIR CLASSE A ({len(res_a)} itens críticos)"):
-                    st.dataframe(res_a[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
-                
-                with st.expander(f"🟡 EXPLODIR CLASSE B ({len(res_b)} itens intermediários)"):
-                    st.dataframe(res_b[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
-                
-                with st.expander(f"🟢 EXPLODIR CLASSE C ({len(res_c)} itens operacionais)"):
-                    st.dataframe(res_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].rename(columns={'Valor_Abs': 'Total Gasto'}).style.format({'Total Gasto': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}), use_container_width=True)
-            else:
-                st.warning("Não há despesas acumuladas no período para gerar a curva ABC.")
+                with st.expander("🔴 EXPLODIR CLASSE A"):
+                    st.dataframe(res_a[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}))
+                with st.expander("🟡 EXPLODIR CLASSE B"):
+                    st.dataframe(res_b[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}))
+                with st.expander("🟢 EXPLODIR CLASSE C"):
+                    st.dataframe(res_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}))
 
-# --- ABA 8: CONSULTORIA IA (NOVIDADE) ---
+# --- ABA 8: CONSULTORIA IA ---
 with aba8:
     st.subheader("🤖 Consultoria Financeira AI")
-    st.markdown("Clique abaixo para que o Gemini analise seus números e aponte pontos cegos estratégicos.")
+    st.markdown("Clique abaixo para que a IA analise seus números atuais e aponte pontos cegos.")
     
-    if st.button("🚀 Gerar Análise de Pontos Cegos"):
+    if st.button("🚀 Gerar Relatório Executivo"):
         with st.spinner("Analisando dados da Status Marcenaria..."):
-            # Coleta os dados reais do período filtrado
             df_ia, _ = processar_bi(ano_sel, meses_sel, cc_sel)
-            
             if df_ia is not None:
-                # Prepara o resumo financeiro para a IA
                 rec = df_ia[df_ia['Conta'].str.startswith('01') & (df_ia['Nivel'] == 2)]['ACUMULADO'].sum()
                 desp = df_ia[df_ia['Conta'].str.startswith('02') & (df_ia['Nivel'] == 2)]['ACUMULADO'].sum()
                 lucro = rec + desp
@@ -577,11 +542,11 @@ with aba8:
                 
                 DADOS DO PERÍODO:
                 - Faturamento: {formatar_moeda_br(rec)}
-                - Despesas Totais: {formatar_moeda_br(desp)}
-                - Lucro Líquido: {formatar_moeda_br(lucro)}
+                - Despesas: {formatar_moeda_br(desp)}
+                - Lucro: {formatar_moeda_br(lucro)}
                 - Rentabilidade: {(lucro/rec*100) if rec > 0 else 0:.1f}%
                 
-                TOP 10 CUSTOS ANALÍTICOS (ONDE O DINHEIRO ESTÁ INDO):
+                TOP 10 CUSTOS:
                 {top_10.to_string(index=False)}
                 
                 RELATÓRIO:
@@ -595,8 +560,7 @@ with aba8:
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(prompt)
                     st.markdown("---")
-                    st.markdown("### 📝 Relatório Executivo")
+                    st.markdown("### 📝 Parecer do Consultor")
                     st.markdown(response.text)
-                    st.download_button("📥 Baixar Relatório", response.text, file_name=f"Analise_IA_{ano_sel}.txt")
                 except Exception as e:
                     st.error(f"Erro na conexão com a IA: {e}")
