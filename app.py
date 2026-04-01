@@ -368,7 +368,7 @@ with aba4:
                 cols_view = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Resultado']
 
             st.dataframe(res_cc_final[cols_view].style.format({c: formatar_moeda_br for c in cols_view[1:]}), use_container_width=True)
-            with aba5:
+with aba5:
     st.subheader("⚖️ Comparativo de Períodos")
     ocultar_aba5 = st.checkbox("🚫 Ocultar sem Movimento", value=False, key="ocultar_aba5")
     c_p1, c_p2 = st.columns(2)
