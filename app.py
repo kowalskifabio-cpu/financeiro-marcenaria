@@ -13,7 +13,7 @@ import google.generativeai as genai
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
 
-# Configuração da IA - Kowalski, ajuste de segurança na inicialização
+# Configuração da IA - Kowalski, aqui forçamos a conexão limpa
 if "gemini_api_key" in st.secrets:
     genai.configure(api_key=st.secrets["gemini_api_key"])
 else:
@@ -48,7 +48,7 @@ def abrir_planilha(key):
 spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
 if not spreadsheet: st.stop()
 
-# --- FUNÇÃO DE LIMPEZA DE CONTA (PRESERVAÇÃO DO .10) ---
+# --- FUNÇÃO DE LIMPEZA DE CONTA ---
 def limpar_conta_blindado(valor, nivel):
     v = str(valor).strip()
     if '/' in v or '-' in v: 
@@ -102,7 +102,6 @@ def filtrar_linhas_zeradas(df, colunas_valores):
             
     return df.drop(index=list(remover_indices)).drop(columns=['zerado'])
 
-# --- CACHE DE ABAS ---
 @st.cache_data(ttl=600) 
 def listar_abas_existentes():
     try:
@@ -329,7 +328,7 @@ with aba4:
     col_ano_cc, col_mes_cc = st.columns(2)
     with col_ano_cc:
         anos_existentes_plan = sorted(list(set([t.split('_')[1] for t in abas_existentes if '_' in t])), reverse=True)
-        anos_cc = st.multiselect("Anos", anos_existentes_plan, default=anos_existentes_plan[:1], key="cc_ano_obras")
+        anos_cc = st.multiselect("Anos", anos_existentes_plan, key="cc_ano_obras")
     with col_mes_cc:
         meses_cc = st.multiselect("Meses", ordem_meses, default=ordem_meses, key="cc_mes_obras")
     
@@ -354,7 +353,7 @@ with aba4:
             if usar_rateio and not df_rateio_config.empty:
                 map_logica = dict(zip(df_rateio_config.iloc[:, 1], df_rateio_config.iloc[:, 0]))
                 res_cc_full['Logica'] = res_cc_full['Centro de Custo'].map(map_logica).fillna('obra')
-                bolo_rateio = res_cc_full[res_full['Logica'] == 'rateio']['Despesa Direta'].sum()
+                bolo_rateio = res_cc_full[res_cc_full['Logica'] == 'rateio']['Despesa Direta'].sum()
                 receptores_full = res_cc_full[res_cc_full['Logica'] == 'obra'].copy()
                 total_desp_receptores = receptores_full['Despesa Direta'].sum()
                 
@@ -513,13 +512,6 @@ with aba7:
                 fig_pareto.add_trace(go.Scatter(x=df_analitico['Descrição'], y=df_analitico['% Acumulado'], name="Acumulado", yaxis="y2", line=dict(color="#ef4444", width=3)))
                 fig_pareto.update_layout(title="Pareto", yaxis=dict(title="R$"), yaxis2=dict(overlaying="y", side="right", range=[0, 105]), showlegend=False)
                 st.plotly_chart(fig_pareto, use_container_width=True)
-                
-                with st.expander("🔴 EXPLODIR CLASSE A"):
-                    st.dataframe(res_a[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}))
-                with st.expander("🟡 EXPLODIR CLASSE B"):
-                    st.dataframe(res_b[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}))
-                with st.expander("🟢 EXPLODIR CLASSE C"):
-                    st.dataframe(res_c[['Conta', 'Descrição', 'Valor_Abs', '% Individual', '% Acumulado']].style.format({'Valor_Abs': formatar_moeda_br, '% Individual': '{:.1f}%', '% Acumulado': '{:.1f}%'}))
 
 # --- ABA 8: CONSULTORIA IA ---
 with aba8:
@@ -556,22 +548,11 @@ with aba8:
                 """
                 
                 try:
-                    # AJUSTE TÉCNICO KOWALSKI: O erro v1beta indica que o SDK está perdido.
-                    # Vamos forçar a descoberta de modelos para limpar o cache do SDK.
-                    model_name = 'gemini-1.5-flash'
-                    # Se houver erro de 404, listamos os modelos para depuração interna (não exibida ao usuário final)
-                    model = genai.GenerativeModel(model_name=model_name)
+                    # Kowalski, aqui usamos a chamada estável e direta.
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(prompt)
                     st.markdown("---")
                     st.markdown("### 📝 Parecer do Consultor")
                     st.markdown(response.text)
                 except Exception as e:
-                    # Se falhar, tentamos o fallback direto para a API estável v1
-                    try:
-                        fallback_model = genai.GenerativeModel('gemini-1.5-flash')
-                        response = fallback_model.generate_content(prompt)
-                        st.markdown("---")
-                        st.markdown("### 📝 Parecer do Consultor (via Fallback)")
-                        st.markdown(response.text)
-                    except:
-                        st.error(f"Erro na conexão com a IA: {e}")
+                    st.error(f"Erro na conexão com a IA: {e}")
