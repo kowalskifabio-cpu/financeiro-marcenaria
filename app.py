@@ -27,8 +27,8 @@ def get_gspread_client():
         info = dict(st.secrets["gcp_service_account"])
         
         # Esta linha agora limpa tanto o formato de linha única quanto o de aspas triplas
-        raw_key = info["private_key"]
-        info["private_key"] = raw_key.replace("\\n", "\n").strip()
+raw_key = info["private_key"]
+info["private_key"] = raw_key.replace("\\n", "\n").strip()
         
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
