@@ -23,12 +23,9 @@ def get_gspread_client():
             st.error("❌ Chave 'gcp_service_account' não encontrada nos Secrets.")
             return None
         
-      # BLINDAGEM TOTAL: Transforma o Secret em dicionário e limpa a chave
+      # LIMPEZA DEFINITIVA: Converte o texto do Secret para o formato que o Google aceita
         info = dict(st.secrets["gcp_service_account"])
-        
-        # NOVA LIMPEZA (DE/PARA): Remove quebras de linha físicas e corrige o \n
-        raw_key = info["private_key"]
-        info["private_key"] = raw_key.replace("\n", "").replace("\\n", "\n").strip()
+        info["private_key"] = info["private_key"].replace("\\n", "\n").strip()
         
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
