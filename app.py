@@ -26,9 +26,9 @@ def get_gspread_client():
         # BLINDAGEM TOTAL: Transforma o Secret em dicionário e limpa a chave
         info = dict(st.secrets["gcp_service_account"])
         
-        # Esta linha agora limpa tanto o formato de linha única quanto o de aspas triplas
-raw_key = info["private_key"]
-info["private_key"] = raw_key.replace("\\n", "\n").strip()
+        # AS LINHAS ABAIXO PRECISAM ESTAR ALINHADAS COM O 'info' ACIMA:
+        raw_key = info["private_key"]
+        info["private_key"] = raw_key.replace("\\n", "\n").strip()
         
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
