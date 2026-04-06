@@ -250,6 +250,28 @@ def carregar_aba_base():
             return pd.DataFrame()
 
 def processar_bi(ano, meses, filtros_cc):
+    st.write("DEBUG BI 1 - meses recebidos:", meses)
+
+    if not meses:
+        st.error("DEBUG BI 2 - nenhum mês selecionado")
+        return None, []
+
+    df_base = carregar_aba_base().copy()
+    st.write("DEBUG BI 3 - df_base vazio?", df_base.empty)
+
+    if not df_base.empty:
+        st.write("DEBUG BI 4 - colunas da Base:", list(df_base.columns))
+
+    if df_base.empty:
+        st.error("DEBUG BI 5 - a aba Base veio vazia")
+        return None, []
+
+    df_base.columns = [str(c).strip() for c in df_base.columns]
+    st.write("DEBUG BI 6 - total de colunas da Base:", len(df_base.columns))
+
+    if len(df_base.columns) < 3:
+        st.error(f"DEBUG BI 7 - Base com menos de 3 colunas: {list(df_base.columns)}")
+        return None, []
 
     df_base = df_base.rename(columns={
         df_base.columns[0]: 'Conta',
@@ -289,7 +311,8 @@ def processar_bi(ano, meses, filtros_cc):
             for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
                 df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
 
-        except:
+        except Exception as e:
+            st.warning(f"⚠️ Erro ao ler a aba '{m}_{ano}': {e}")
             df_base[m] = 0.0
 
     df_base['ACUMULADO'] = df_base[meses].sum(axis=1)
