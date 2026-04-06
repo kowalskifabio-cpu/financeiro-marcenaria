@@ -311,7 +311,7 @@ with aba4:
     # 1. FILTROS INDEPENDENTES (Aba Obras não olha para a Sidebar para datas)
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        anos_obras_sel = st.multiselect("Anos da Obra (Acumulado)", [2024, 2025, 2026, 2027], default=[ano_sel], key="anos_obra_v16")
+       anos_obras_sel = st.multiselect("Anos da Obra (Acumulado)", [2024, 2025, 2026, 2027], default=[2026], key="anos_obra_v16")
     with col_f2:
         meses_obras_sel = st.multiselect("Meses da Obra (Acumulado)", meses_lista, default=meses_lista, key="meses_obra_v16")
     
