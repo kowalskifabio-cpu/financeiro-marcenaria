@@ -325,13 +325,13 @@ with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento", value=False, key="ocultar_aba2")
     if st.button("📊 Gerar Relatório Filtrado", key="btn_aba2"):
-    st.write("DEBUG 1 - botão clicado")
-    df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
-    st.write("DEBUG 2 - processar_bi executado")
-    st.write("DEBUG 3 - df_res é None?", df_res is None)
-    st.write("DEBUG 4 - meses_exibir:", meses_exibir)
+        st.write("DEBUG 1 - botão clicado")
+        df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
+        st.write("DEBUG 2 - processar_bi executado")
+        st.write("DEBUG 3 - df_res é None?", df_res is None)
+        st.write("DEBUG 4 - meses_exibir:", meses_exibir)
 
-    if df_res is not None:
+        if df_res is not None:
             if ocultar_vazios_aba2:
                 df_res = filtrar_linhas_zeradas(df_res, meses_exibir + ['ACUMULADO'])
             df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
