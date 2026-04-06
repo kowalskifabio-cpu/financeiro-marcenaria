@@ -709,8 +709,27 @@ with aba7:
                 c_a, c_b, c_c = st.columns(3)
                 r_a, r_b, r_c = df_an[df_an['Classe'] == 'A'], df_an[df_an['Classe'] == 'B'], df_an[df_an['Classe'] == 'C']
                 
-                for col, cl, dcl, color, bcolor in zip([c_a, c_b, c_c], ['A', 'B', 'C'], [r_a, r_b, r_c], ['#ef4444', '#f59e0b', '#22c55e'], ['#fee2e2', '#fef3c7', '#dcfce7']):
-                    col.markdown(f"<div style='background-color: {bcolor}; padding: 20px; border-radius: 10px; border-left: 5px solid {color};'><h3 style='color: {color}; margin-top:0;'>CLASSE {cl}</h3><p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-dcl['Valor_Abs'].sum())}</p><p>{len(dcl)} contas</p></div>", unsafe_allow_html=True)
+                for col, cl, dcl, color, bcolor in zip(
+                    [c_a, c_b, c_c],
+                    ['A', 'B', 'C'],
+                    [r_a, r_b, r_c],
+                    ['#ef4444', '#f59e0b', '#22c55e'],
+                    ['#fee2e2', '#fef3c7', '#dcfce7']
+                ):
+                    valor_classe = dcl['Valor_Abs'].sum()
+                    percentual_classe = (valor_classe / tot * 100) if tot > 0 else 0
+
+                    col.markdown(
+                        f"""
+                        <div style='background-color: {bcolor}; padding: 20px; border-radius: 10px; border-left: 5px solid {color};'>
+                            <h3 style='color: {color}; margin-top:0;'>CLASSE {cl}</h3>
+                            <p style='font-size: 24px; font-weight: bold; margin-bottom:0;'>{formatar_moeda_br(-valor_classe)}</p>
+                            <p style='margin: 6px 0 0 0; font-weight: 600;'>{percentual_classe:.1f}% do total</p>
+                            <p>{len(dcl)} contas</p>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
                 
                 st.divider()
                 fig_p = go.Figure()
