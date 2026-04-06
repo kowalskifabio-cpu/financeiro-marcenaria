@@ -250,16 +250,6 @@ def carregar_aba_base():
             return pd.DataFrame()
 
 def processar_bi(ano, meses, filtros_cc):
-    if not meses:
-        return None, []
-
-    df_base = carregar_aba_base().copy()
-    if df_base.empty:
-        return None, []
-
-    df_base.columns = [str(c).strip() for c in df_base.columns]
-    if len(df_base.columns) < 3:
-        return None, []
 
     df_base = df_base.rename(columns={
         df_base.columns[0]: 'Conta',
