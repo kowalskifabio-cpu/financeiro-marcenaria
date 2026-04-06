@@ -240,37 +240,33 @@ niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4
 
 @st.cache_data(ttl=600)
 def carregar_aba_base():
-    try:
-        return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
-    except:
-        time.sleep(2)
+    for tentativa in range(3):
         try:
-            return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
-        except:
-            return pd.DataFrame()
+            ws = spreadsheet.worksheet("Base")
+            df = pd.DataFrame(ws.get_all_records())
+            return df
+        except Exception as e:
+            if "429" in str(e) or "quota" in str(e).lower():
+                time.sleep(3)
+                continue
+            time.sleep(2)
+    return pd.DataFrame()
+
 
 def processar_bi(ano, meses, filtros_cc):
-    st.write("DEBUG BI 1 - meses recebidos:", meses)
-
     if not meses:
-        st.error("DEBUG BI 2 - nenhum mês selecionado")
         return None, []
 
     df_base = carregar_aba_base().copy()
-    st.write("DEBUG BI 3 - df_base vazio?", df_base.empty)
-
-    if not df_base.empty:
-        st.write("DEBUG BI 4 - colunas da Base:", list(df_base.columns))
 
     if df_base.empty:
-        st.error("DEBUG BI 5 - a aba Base veio vazia")
+        st.error("❌ Não foi possível ler a aba 'Base'. Verifique se ela existe e contém dados.")
         return None, []
 
     df_base.columns = [str(c).strip() for c in df_base.columns]
-    st.write("DEBUG BI 6 - total de colunas da Base:", len(df_base.columns))
 
     if len(df_base.columns) < 3:
-        st.error(f"DEBUG BI 7 - Base com menos de 3 colunas: {list(df_base.columns)}")
+        st.error("❌ A aba 'Base' precisa ter pelo menos 3 colunas.")
         return None, []
 
     df_base = df_base.rename(columns={
@@ -278,6 +274,10 @@ def processar_bi(ano, meses, filtros_cc):
         df_base.columns[1]: 'Descrição',
         df_base.columns[2]: 'Nivel'
     })
+
+    df_base['Nivel'] = pd.to_numeric(df_base['Nivel'], errors='coerce')
+    df_base = df_base.dropna(subset=['Nivel']).copy()
+    df_base['Nivel'] = df_base['Nivel'].astype(int)
 
     df_base['Conta'] = df_base.apply(
         lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']),
@@ -287,11 +287,27 @@ def processar_bi(ano, meses, filtros_cc):
     for m in meses:
         try:
             df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
+
+            if df_m.empty:
+                df_base[m] = 0.0
+                continue
+
+            if 'Valor_Final' not in df_m.columns:
+                df_base[m] = 0.0
+                continue
+
             df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
 
             if "Todos" not in filtros_cc and filtros_cc:
                 if 'Centro de Custo' in df_m.columns:
                     df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
+
+            if 'Conta_ID' not in df_m.columns:
+                if 'C. Resultado' in df_m.columns:
+                    df_m['Conta_ID'] = df_m['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
+                else:
+                    df_base[m] = 0.0
+                    continue
 
             df_m['Conta_ID'] = df_m['Conta_ID'].astype(str).str.strip()
             mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
@@ -311,14 +327,13 @@ def processar_bi(ano, meses, filtros_cc):
             for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
                 df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
 
-        except Exception as e:
-            st.warning(f"⚠️ Erro ao ler a aba '{m}_{ano}': {e}")
+        except Exception:
             df_base[m] = 0.0
 
     df_base['ACUMULADO'] = df_base[meses].sum(axis=1)
     df_base['MÉDIA'] = df_base[meses].mean(axis=1)
     return df_base, meses
-
+    
 def gerar_dados_pizza(df, nivel, limite=10):
     dados = df[(df['Nivel'] == nivel) & (df['ACUMULADO'] < 0)].copy()
     dados['Abs_Acumulado'] = dados['ACUMULADO'].abs()
