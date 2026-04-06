@@ -338,28 +338,29 @@ with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento", value=False, key="ocultar_aba2")
     if st.button("📊 Gerar Relatório Filtrado", key="btn_aba2"):
-        st.write("DEBUG 1 - botão clicado")
         df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
-        st.write("DEBUG 2 - processar_bi executado")
-        st.write("DEBUG 3 - df_res é None?", df_res is None)
-        st.write("DEBUG 4 - meses_exibir:", meses_exibir)
-
+        
         if df_res is not None:
             if ocultar_vazios_aba2:
                 df_res = filtrar_linhas_zeradas(df_res, meses_exibir + ['ACUMULADO'])
             df_visual = df_res[df_res['Nivel'].isin(niveis_sel)].copy()
             cols_export = ['Nivel', 'Conta', 'Descrição'] + meses_exibir + ['MÉDIA', 'ACUMULADO']
+            
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df_visual[cols_export].to_excel(writer, index=False, sheet_name='Consolidado')
+            
             st.download_button(label="📥 Exportar Relatório (Excel)", data=buffer.getvalue(), file_name=f"Relatorio_{ano_sel}.xlsx")
+            
             def style_rows(row):
                 if row['Nivel'] == 1: return ['background-color: #334155; color: white; font-weight: bold'] * len(row)
                 if row['Nivel'] == 2: return ['background-color: #cbd5e1; font-weight: bold; color: black'] * len(row)
                 if row['Nivel'] == 3: return ['background-color: #D1EAFF; font-weight: bold; color: black'] * len(row)
                 return [''] * len(row)
             st.dataframe(df_visual[cols_export].style.apply(style_rows, axis=1).format({c: formatar_moeda_br for c in cols_export if c not in ['Nivel', 'Conta', 'Descrição']}), use_container_width=True, height=800)
-
+    else:
+        st.error("❌ Não foi possível gerar o relatório.")
+        
 with aba3:
     st.subheader("🎯 Indicadores de Gestão")
     if st.button("📈 Ver Dashboard Completo", key="btn_aba3_completo"):
