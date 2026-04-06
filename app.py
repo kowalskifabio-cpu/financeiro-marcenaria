@@ -213,6 +213,114 @@ with aba1:
 
         st.cache_data.clear()
         st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
+        # --- FILTROS SIDEBAR (BI MENSAL) ---
+st.sidebar.header("Filtros de Análise")
+abas_existentes = listar_abas_existentes()
+ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027, 2024], index=0)
+ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+
+meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
+meses_sel = st.sidebar.multiselect("Meses (Filtro Geral)", meses_disponiveis, default=meses_disponiveis)
+
+@st.cache_data(ttl=600)
+def obter_centros_custo(abas_tuple):
+    centros = set()
+    for aba_nome in abas_tuple:
+        try:
+            df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
+            if 'Centro de Custo' in df_m.columns:
+                centros.update(df_m['Centro de Custo'].astype(str).unique())
+        except:
+            pass
+    return sorted(list(centros))
+
+lista_cc = obter_centros_custo(tuple(abas_existentes))
+cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
+niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
+
+@st.cache_data(ttl=600)
+def carregar_aba_base():
+    try:
+        return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+    except:
+        time.sleep(2)
+        try:
+            return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
+        except:
+            return pd.DataFrame()
+
+def processar_bi(ano, meses, filtros_cc):
+    if not meses:
+        return None, []
+
+    df_base = carregar_aba_base().copy()
+    if df_base.empty:
+        return None, []
+
+    df_base.columns = [str(c).strip() for c in df_base.columns]
+    if len(df_base.columns) < 3:
+        return None, []
+
+    df_base = df_base.rename(columns={
+        df_base.columns[0]: 'Conta',
+        df_base.columns[1]: 'Descrição',
+        df_base.columns[2]: 'Nivel'
+    })
+
+    df_base['Conta'] = df_base.apply(
+        lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']),
+        axis=1
+    ).astype(str)
+
+    for m in meses:
+        try:
+            df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
+            df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+
+            if "Todos" not in filtros_cc and filtros_cc:
+                if 'Centro de Custo' in df_m.columns:
+                    df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
+
+            df_m['Conta_ID'] = df_m['Conta_ID'].astype(str).str.strip()
+            mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
+
+            df_base[m] = 0.0
+            df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
+
+            for n in [3, 2]:
+                for idx, row in df_base[df_base['Nivel'] == n].iterrows():
+                    pref = str(row['Conta']).strip() + "."
+                    total = df_base[
+                        (df_base['Nivel'] == 4) &
+                        (df_base['Conta'].str.startswith(pref))
+                    ][m].sum()
+                    df_base.at[idx, m] = total
+
+            for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
+                df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
+
+        except:
+            df_base[m] = 0.0
+
+    df_base['ACUMULADO'] = df_base[meses].sum(axis=1)
+    df_base['MÉDIA'] = df_base[meses].mean(axis=1)
+    return df_base, meses
+
+def gerar_dados_pizza(df, nivel, limite=10):
+    dados = df[(df['Nivel'] == nivel) & (df['ACUMULADO'] < 0)].copy()
+    dados['Abs_Acumulado'] = dados['ACUMULADO'].abs()
+    dados = dados.sort_values(by='Abs_Acumulado', ascending=False)
+
+    if len(dados) > limite:
+        principais = dados.head(limite).copy()
+        outros_val = dados.iloc[limite:]['Abs_Acumulado'].sum()
+        outros_df = pd.DataFrame({
+            'Descrição': ['OUTRAS DESPESAS'],
+            'Abs_Acumulado': [outros_val]
+        })
+        return pd.concat([principais, outros_df], ignore_index=True)
+
+    return dados
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento", value=False, key="ocultar_aba2")
