@@ -25,7 +25,7 @@ def get_gspread_client():
         
       # LIMPEZA DEFINITIVA: Converte o texto do Secret para o formato que o Google aceita
         info = dict(st.secrets["gcp_service_account"])
-        info["private_key"] = info["private_key"].replace("\\n", "\n").replace("\n", "\n").strip()
+        info["private_key"] = info["private_key"].encode().decode('unicode_escape').replace("\\n", "\n").strip()
         
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
