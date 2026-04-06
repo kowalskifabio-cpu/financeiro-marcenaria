@@ -134,148 +134,85 @@ aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8 = st.tabs(["📥 Carga", "📈 Re
 with aba1:
     col_m, col_a = st.columns(2)
     meses_lista = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-    with col_m: m_ref = st.selectbox("Mês", meses_lista)
-    with col_a: a_ref = st.selectbox("Ano", [2026, 2025, 2027, 2024])
+
+    with col_m:
+        m_ref = st.selectbox("Mês", meses_lista)
+
+    with col_a:
+        a_ref = st.selectbox("Ano", [2026, 2025, 2027, 2024])
+
     arq = st.file_uploader("Subir Excel do Sistema", type=["xlsx"])
-    
+
     if arq and st.button("🚀 Salvar Período"):
+
         df_carga = pd.read_excel(arq)
         df_carga.columns = [str(c).strip() for c in df_carga.columns]
-        
+
         if 'Data Baixa' in df_carga.columns:
             df_carga['Data Baixa'] = pd.to_datetime(df_carga['Data Baixa'], errors='coerce')
             mes_num = meses_lista.index(m_ref) + 1
             ultimo_dia = calendar.monthrange(a_ref, mes_num)[1]
             data_inicio = datetime(a_ref, mes_num, 1)
             data_fim = datetime(a_ref, mes_num, ultimo_dia)
-            fora_do_periodo = df_carga[(df_carga['Data Baixa'] < data_inicio) | (df_carga['Data Baixa'] > data_fim)]
+
+            fora_do_periodo = df_carga[
+                (df_carga['Data Baixa'] < data_inicio) |
+                (df_carga['Data Baixa'] > data_fim)
+            ]
+
             if not fora_do_periodo.empty:
                 st.error(f"❌ CARGA ABORTADA: Datas fora de {m_ref}/{a_ref} detectadas.")
                 st.stop()
 
         if 'Histórico' in df_carga.columns:
             total_antes = len(df_carga)
-            df_carga = df_carga[~df_carga['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)]
+            df_carga = df_carga[
+                ~df_carga['Histórico'].astype(str).str.contains('baixa vinculo', case=False, na=False)
+            ]
             removidos = total_antes - len(df_carga)
+
             if removidos > 0:
                 st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
 
-# Validação da Base
-def ler_base_com_retry():
-    for tentativa in range(3):
-        try:
-            ws = spreadsheet.worksheet("Base")
-            return pd.DataFrame(ws.get_all_records())
-        except Exception as e:
-            if "429" in str(e) or "quota" in str(e).lower():
-                time.sleep(5)
-                continue
-            else:
-                raise e
-    return pd.DataFrame()
+        # 🔥 VALIDAÇÃO DA BASE (AGORA NO LUGAR CERTO)
+        for tentativa in range(3):
+            try:
+                ws_base_val = spreadsheet.worksheet("Base")
+                df_base_check = pd.DataFrame(ws_base_val.get_all_records())
+                break
+            except Exception as e:
+                if "429" in str(e) or "quota" in str(e).lower():
+                    time.sleep(5)
+                    continue
+                else:
+                    raise e
+        else:
+            df_base_check = pd.DataFrame()
 
+        if df_base_check.empty:
+            st.error("❌ Falha ao ler a aba 'Base' (quota ou conexão).")
+            st.stop()
 
-df_base_check = ler_base_com_retry()
+        df_carga['Valor_Final'] = df_carga.apply(
+            lambda x: x['Valor Baixado'] * -1
+            if str(x['Pag/Rec']).strip().upper() == 'P'
+            else x['Valor Baixado'],
+            axis=1
+        )
 
-if df_base_check.empty:
-    st.error("❌ Falha ao ler a aba 'Base' (quota ou conexão).")
-    st.stop()
-
-        df_carga['Valor_Final'] = df_carga.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
-        
         nome_aba = f"{m_ref}_{a_ref}"
+
         try:
             ws = spreadsheet.worksheet(nome_aba)
             ws.clear()
         except:
             ws = spreadsheet.add_worksheet(title=nome_aba, rows="2000", cols="20")
-        
-        # Blindagem JSON Python 3.13
+
         dados_upload = [df_carga.columns.tolist()] + df_carga.fillna('').astype(str).values.tolist()
         ws.update(dados_upload)
-        
+
         st.cache_data.clear()
         st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
-
-# --- FILTROS SIDEBAR (BI MENSAL) ---
-st.sidebar.header("Filtros de Análise")
-abas_existentes = listar_abas_existentes()
-ano_sel = st.sidebar.selectbox("Ano de Referência", [2026, 2025, 2027, 2024], index=0)
-ordem_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-
-meses_disponiveis = [m for m in ordem_meses if f"{m}_{ano_sel}" in abas_existentes]
-meses_sel = st.sidebar.multiselect("Meses (Filtro Geral)", meses_disponiveis, default=meses_disponiveis)
-
-@st.cache_data(ttl=600)
-def obter_centros_custo(abas_tuple): 
-    centros = set()
-    for aba_nome in abas_tuple:
-        try:
-            df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
-            if 'Centro de Custo' in df_m.columns:
-                centros.update(df_m['Centro de Custo'].astype(str).unique())
-        except: pass
-    return sorted(list(centros))
-
-lista_cc = obter_centros_custo(tuple(abas_existentes))
-cc_sel = st.sidebar.multiselect("Centros de Custo", ["Todos"] + lista_cc, default="Todos")
-niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4])
-@st.cache_data(ttl=600)
-def carregar_aba_base():
-    try:
-        return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
-    except:
-        time.sleep(2)
-        try: return pd.DataFrame(spreadsheet.worksheet("Base").get_all_records())
-        except: return pd.DataFrame()
-
-def processar_bi(ano, meses, filtros_cc):
-    if not meses: return None, []
-    df_base = carregar_aba_base().copy()
-    if df_base.empty: return None, []
-    df_base.columns = [str(c).strip() for c in df_base.columns]
-    df_base = df_base.rename(columns={df_base.columns[0]: 'Conta', df_base.columns[1]: 'Descrição', df_base.columns[2]: 'Nivel'})
-    df_base['Conta'] = df_base.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
-
-    for m in meses:
-        try:
-            df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
-            df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
-            
-            if "Todos" not in filtros_cc and filtros_cc:
-                if 'Centro de Custo' in df_m.columns:
-                    df_m = df_m[df_m['Centro de Custo'].isin(filtros_cc)]
-            
-            df_m['Conta_ID'] = df_m['Conta_ID'].astype(str).str.strip()
-            mapeamento = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
-            
-            df_base[m] = 0.0
-            df_base.loc[df_base['Nivel'] == 4, m] = df_base['Conta'].map(mapeamento).fillna(0)
-            
-            for n in [3, 2]:
-                for idx, row in df_base[df_base['Nivel'] == n].iterrows():
-                    pref = str(row['Conta']).strip() + "."
-                    total = df_base[(df_base['Nivel'] == 4) & (df_base['Conta'].str.startswith(pref))][m].sum()
-                    df_base.at[idx, m] = total
-            for idx, row in df_base[df_base['Nivel'] == 1].iterrows():
-                df_base.at[idx, m] = df_base[df_base['Nivel'] == 2][m].sum()
-        except: df_base[m] = 0.0
-
-    df_base['ACUMULADO'] = df_base[meses].sum(axis=1)
-    df_base['MÉDIA'] = df_base[meses].mean(axis=1)
-    return df_base, meses
-
-def gerar_dados_pizza(df, nivel, limite=10):
-    dados = df[(df['Nivel'] == nivel) & (df['ACUMULADO'] < 0)].copy()
-    dados['Abs_Acumulado'] = dados['ACUMULADO'].abs()
-    dados = dados.sort_values(by='Abs_Acumulado', ascending=False)
-    if len(dados) > limite:
-        principais = dados.head(limite).copy()
-        outros_val = dados.iloc[limite:]['Abs_Acumulado'].sum()
-        outros_df = pd.DataFrame({'Descrição': ['OUTRAS DESPESAS'], 'Abs_Acumulado': [outros_val]})
-        return pd.concat([principais, outros_df], ignore_index=True)
-    return dados
-
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento", value=False, key="ocultar_aba2")
