@@ -121,12 +121,36 @@ def listar_abas_existentes():
     except: return []
 @st.cache_data(ttl=300)
 def carregar_logica_rateio():
-    try:
-        df_log = pd.DataFrame(spreadsheet.worksheet("Rateio").get_all_records())
-        df_log.iloc[:, 0] = df_log.iloc[:, 0].astype(str).str.lower().str.strip()
-        return df_log
-    except:
-        return pd.DataFrame()
+    for tentativa in range(3):
+        try:
+            df_log = pd.DataFrame(spreadsheet.worksheet("Rateio").get_all_records())
+
+            if df_log.empty:
+                return pd.DataFrame()
+
+            df_log.columns = [str(c).strip() for c in df_log.columns]
+
+            if len(df_log.columns) < 2:
+                return pd.DataFrame()
+
+            col_logica = df_log.columns[0]
+            col_cc = df_log.columns[1]
+
+            df_log[col_logica] = df_log[col_logica].astype(str).str.lower().str.strip()
+            df_log[col_cc] = df_log[col_cc].astype(str).str.strip()
+
+            df_log = df_log[df_log[col_logica].isin(["obra", "rateio", "fora"])].copy()
+            df_log = df_log[df_log[col_cc] != ""].copy()
+
+            return df_log
+
+        except Exception as e:
+            if "429" in str(e) or "quota" in str(e).lower():
+                time.sleep(3)
+                continue
+            time.sleep(2)
+
+    return pd.DataFrame()
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
 aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8 = st.tabs(["📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo", "⚠️ Alertas", "📉 Curva ABC", "🤖 Analista IA"])
