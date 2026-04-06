@@ -531,13 +531,50 @@ with aba5:
 with aba6:
     st.subheader("⚠️ Central de Alertas Preventivos")
     if abas_existentes:
-        abas_sort = sorted([a for a in abas_existentes if '_' in a], key=lambda x: (int(x.split('_')[1]), meses_lista.index(x.split('_')[0])), reverse=True)
+        abas_sort = sorted(
+            [a for a in abas_existentes if '_' in a],
+            key=lambda x: (int(x.split('_')[1]), meses_lista.index(x.split('_')[0])),
+            reverse=True
+        )
+
         if len(abas_sort) >= 2:
             st.write(f"**Analisando:** {abas_sort[0]} vs Média de ({', '.join(abas_sort[1:4])})")
+
             df_base_alert = carregar_aba_base().copy()
+
+            # Blindagem 1: Base vazia
+            if df_base_alert.empty:
+                st.warning("⚠️ A aba 'Base' está vazia ou não pôde ser lida.")
+                st.stop()
+
             df_base_alert.columns = [str(c).strip() for c in df_base_alert.columns]
-            df_base_alert = df_base_alert.rename(columns={df_base_alert.columns[0]: 'Conta', df_base_alert.columns[1]: 'Descrição', df_base_alert.columns[2]: 'Nivel'})
-            df_base_alert['Conta'] = df_base_alert.apply(lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']), axis=1).astype(str)
+
+            # Blindagem 2: quantidade mínima de colunas
+            if len(df_base_alert.columns) < 3:
+                st.error(
+                    f"❌ A aba 'Base' precisa ter pelo menos 3 colunas. "
+                    f"Encontrado: {list(df_base_alert.columns)}"
+                )
+                st.stop()
+
+            df_base_alert = df_base_alert.rename(columns={
+                df_base_alert.columns[0]: 'Conta',
+                df_base_alert.columns[1]: 'Descrição',
+                df_base_alert.columns[2]: 'Nivel'
+            })
+
+            # Blindagem 3: remove linhas sem conta
+            df_base_alert = df_base_alert.dropna(subset=['Conta']).copy()
+
+            # Blindagem 4: converte nível
+            df_base_alert['Nivel'] = pd.to_numeric(df_base_alert['Nivel'], errors='coerce')
+            df_base_alert = df_base_alert.dropna(subset=['Nivel']).copy()
+            df_base_alert['Nivel'] = df_base_alert['Nivel'].astype(int)
+
+            df_base_alert['Conta'] = df_base_alert.apply(
+                lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']),
+                axis=1
+            ).astype(str)
             
             def get_vals_alert(lista):
                 mv = {}
