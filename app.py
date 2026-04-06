@@ -16,19 +16,46 @@ st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide"
 
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
+def normalizar_private_key(private_key):
+    key = str(private_key).strip()
+
+    # Corrige \n literal (principal causa do seu erro)
+    if "\\n" in key:
+        key = key.replace("\\n", "\n")
+
+    # Normaliza quebra de linha
+    key = key.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Garante estrutura válida
+    if "-----BEGIN PRIVATE KEY-----" not in key:
+        raise ValueError("Chave inválida: BEGIN não encontrado")
+    if "-----END PRIVATE KEY-----" not in key:
+        raise ValueError("Chave inválida: END não encontrado")
+
+    if not key.endswith("\n"):
+        key += "\n"
+
+    return key
+
+
 @st.cache_resource
 def get_gspread_client():
     try:
         if "gcp_service_account" not in st.secrets:
             st.error("❌ Chave 'gcp_service_account' não encontrada nos Secrets.")
             return None
-        
-      # LIMPEZA DEFINITIVA: Converte o texto do Secret para o formato que o Google aceita
+
         info = dict(st.secrets["gcp_service_account"])
-        info["private_key"] = info["private_key"].strip()
-        
+
+        # 👇 AQUI ESTÁ A CORREÇÃO REAL
+        info["private_key"] = normalizar_private_key(info["private_key"])
+
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
+
+    except Exception as e:
+        st.error(f"Erro ao autorizar Google: {e}")
+        return None
     except Exception as e:
         st.error(f"Erro ao autorizar Google: {e}")
         return None
