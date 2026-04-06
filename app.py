@@ -162,7 +162,7 @@ with aba1:
 
         # Validação da Base
         def ler_base_com_retry():
-    for tentativa in range(3):
+        for tentativa in range(3):
         try:
             ws = spreadsheet.worksheet("Base")
             return pd.DataFrame(ws.get_all_records())
