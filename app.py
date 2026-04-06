@@ -161,8 +161,24 @@ with aba1:
                 st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
 
         # Validação da Base
-        ws_base_val = spreadsheet.worksheet("Base")
-        df_base_check = pd.DataFrame(ws_base_val.get_all_records())
+        def ler_base_com_retry():
+    for tentativa in range(3):
+        try:
+            ws = spreadsheet.worksheet("Base")
+            return pd.DataFrame(ws.get_all_records())
+        except Exception as e:
+            if "429" in str(e) or "quota" in str(e).lower():
+                time.sleep(5)
+                continue
+            else:
+                raise e
+    return pd.DataFrame()
+
+df_base_check = ler_base_com_retry()
+
+if df_base_check.empty:
+    st.error("❌ Falha ao ler a aba 'Base' (quota ou conexão).")
+    st.stop()
         contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
         
         df_carga['Conta_ID'] = df_carga['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
