@@ -160,9 +160,9 @@ with aba1:
             if removidos > 0:
                 st.warning(f"ℹ️ {removidos} lançamentos de 'baixa vinculo' foram ignorados nesta carga.")
 
-        # Validação da Base
-        def ler_base_com_retry():
-        for tentativa in range(3):
+# Validação da Base
+def ler_base_com_retry():
+    for tentativa in range(3):
         try:
             ws = spreadsheet.worksheet("Base")
             return pd.DataFrame(ws.get_all_records())
@@ -174,21 +174,12 @@ with aba1:
                 raise e
     return pd.DataFrame()
 
+
 df_base_check = ler_base_com_retry()
 
 if df_base_check.empty:
     st.error("❌ Falha ao ler a aba 'Base' (quota ou conexão).")
     st.stop()
-        contas_base = set(df_base_check.iloc[:, 0].astype(str).str.strip().unique())
-        
-        df_carga['Conta_ID'] = df_carga['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
-        contas_carga = set(df_carga['Conta_ID'].unique())
-        contas_faltantes = contas_carga - contas_base
-        
-        if contas_faltantes:
-            st.error("⚠️ ERRO: Contas de Resultado novas detectadas. Cadastre na aba 'Base'.")
-            st.write(list(contas_faltantes))
-            st.stop()
 
         df_carga['Valor_Final'] = df_carga.apply(lambda x: x['Valor Baixado'] * -1 if str(x['Pag/Rec']).strip().upper() == 'P' else x['Valor Baixado'], axis=1)
         
