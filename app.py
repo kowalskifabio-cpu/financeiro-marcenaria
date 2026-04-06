@@ -473,86 +473,154 @@ with aba3:
             st.dataframe(df_comp_view[['Descrição', 'ACUMULADO', '% s/ Receita']].style.format({'ACUMULADO': formatar_moeda_br, '% s/ Receita': '{:.1f}%'}), use_container_width=True)
 with aba4:
     st.subheader("🏢 Análise de Obras e Rateio Dinâmico")
-    
-    # 1. FILTROS INDEPENDENTES (Aba Obras não olha para a Sidebar para datas)
+
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-       anos_obras_sel = st.multiselect("Anos da Obra (Acumulado)", [2024, 2025, 2026, 2027], default=[2026], key="anos_obra_v16")
+        anos_obras_sel = st.multiselect(
+            "Anos da Obra (Acumulado)",
+            [2024, 2025, 2026, 2027],
+            default=[2026],
+            key="anos_obra_v16"
+        )
+
     with col_f2:
-        meses_obras_sel = st.multiselect("Meses da Obra (Acumulado)", meses_lista, default=meses_lista, key="meses_obra_v16")
-    
+        meses_obras_sel = st.multiselect(
+            "Meses da Obra (Acumulado)",
+            meses_lista,
+            default=meses_lista,
+            key="meses_obra_v16"
+        )
+
     usar_rateio = st.toggle("🔄 Ativar Visão de Custo Real (Rateio Dinâmico)", value=False)
-    
+
     if st.button("📊 Processar Obras Acumuladas", key="btn_aba4_v16"):
         lista_dfs = []
-        # BUSCA GLOBAL: Pega TUDO dos meses/anos selecionados (Sem filtrar Centro de Custo ainda!)
+
         for a_obra in anos_obras_sel:
             for m_obra in meses_obras_sel:
                 aba_nome = f"{m_obra}_{a_obra}"
                 if aba_nome in abas_existentes:
                     try:
                         df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
-                        if not df_m.empty: 
+                        if not df_m.empty:
                             lista_dfs.append(df_m)
-                    except: pass
-        
-        if lista_dfs:
-            # Consolida a base bruta
-            df_all = pd.concat(lista_dfs, ignore_index=True)
-            df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
-            df_all['Conta_ID'] = df_all['Conta_ID'].astype(str).str.strip()
+                    except:
+                        pass
 
-            # 2. CÁLCULO DO RATEIO SOBRE A BASE TOTAL (Regra do 100%)
-            res_cc_full = df_all.groupby('Centro de Custo').apply(lambda x: pd.Series({
-                'Receitas': x[x['Conta_ID'].str.startswith('01')]['Valor_Final'].sum(),
-                'Despesa Direta': x[x['Conta_ID'].str.startswith('02')]['Valor_Final'].sum(),
-            })).reset_index()
+        if lista_dfs:
+            df_all = pd.concat(lista_dfs, ignore_index=True)
+
+            if 'Valor_Final' not in df_all.columns:
+                st.error("❌ A base consolidada não possui a coluna 'Valor_Final'.")
+                st.stop()
+
+            df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
+
+            if 'Conta_ID' not in df_all.columns:
+                if 'C. Resultado' in df_all.columns:
+                    df_all['Conta_ID'] = df_all['C. Resultado'].astype(str).str.split(' ').str[0].str.strip()
+                else:
+                    st.error("❌ A base consolidada não possui 'Conta_ID' nem 'C. Resultado'.")
+                    st.stop()
+
+            if 'Centro de Custo' not in df_all.columns:
+                st.error("❌ A base consolidada não possui a coluna 'Centro de Custo'.")
+                st.stop()
+
+            df_all['Conta_ID'] = df_all['Conta_ID'].astype(str).str.strip()
+            df_all['Centro de Custo'] = df_all['Centro de Custo'].astype(str).str.strip()
+
+            res_cc_full = df_all.groupby('Centro de Custo').apply(
+                lambda x: pd.Series({
+                    'Receitas': x[x['Conta_ID'].str.startswith('01')]['Valor_Final'].sum(),
+                    'Despesa Direta': x[x['Conta_ID'].str.startswith('02')]['Valor_Final'].sum(),
+                })
+            ).reset_index()
 
             if usar_rateio:
-                df_rateio_config = carregar_logica_rateio() 
-                if not df_rateio_config.empty:
-                    # Classifica quem é obra, quem é rateio
-                    map_logica = dict(zip(df_rateio_config.iloc[:, 1], df_rateio_config.iloc[:, 0]))
-                    res_cc_full['Logica'] = res_cc_full['Centro de Custo'].map(map_logica).fillna('obra')
-                    
-                    # Soma o bolo do rateio e a despesa das obras (Mesa Cheia)
-                    bolo_rateio = res_cc_full[res_cc_full['Logica'] == 'rateio']['Despesa Direta'].sum()
-                    receptores = res_cc_full[res_cc_full['Logica'] == 'obra'].copy()
-                    total_desp_receptores = receptores['Despesa Direta'].sum()
-                    
-                    # Distribui o rateio proporcionalmente
-                    if abs(total_desp_receptores) > 0:
-                        res_cc_full['Rateio Estrutura'] = 0.0
-                        res_cc_full.loc[res_cc_full['Logica'] == 'obra', 'Rateio Estrutura'] = (res_cc_full['Despesa Direta'] / total_desp_receptores) * bolo_rateio
-                    else:
-                        res_cc_full['Rateio Estrutura'] = 0.0
-                    
-                    res_cc_final = res_cc_full[res_cc_full['Logica'] != 'rateio'].copy()
-                    res_cc_final['Resultado Real'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta'] + res_cc_final.get('Rateio Estrutura', 0)
-                    cols_v = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Rateio Estrutura', 'Resultado Real']
-                else: 
-                    res_cc_final, cols_v = res_cc_full, ['Centro de Custo', 'Receitas', 'Despesa Direta']
+                df_rateio_config = carregar_logica_rateio()
+
+                if df_rateio_config.empty:
+                    st.error("❌ Não foi possível ler a configuração da aba 'Rateio'.")
+                    st.stop()
+
+                col_logica = df_rateio_config.columns[0]
+                col_cc = df_rateio_config.columns[1]
+
+                mapa_logica = dict(
+                    zip(
+                        df_rateio_config[col_cc].astype(str).str.strip(),
+                        df_rateio_config[col_logica].astype(str).str.lower().str.strip()
+                    )
+                )
+
+                res_cc_full['Logica'] = (
+                    res_cc_full['Centro de Custo']
+                    .astype(str)
+                    .str.strip()
+                    .map(mapa_logica)
+                    .fillna('obra')
+                )
+
+                bolo_rateio = res_cc_full.loc[
+                    res_cc_full['Logica'] == 'rateio',
+                    'Despesa Direta'
+                ].sum()
+
+                res_cc_full['Rateio Estrutura'] = 0.0
+
+                idx_obras = (
+                    (res_cc_full['Logica'] == 'obra') &
+                    (res_cc_full['Despesa Direta'] != 0)
+                )
+
+                total_desp_receptores = res_cc_full.loc[idx_obras, 'Despesa Direta'].sum()
+
+                if abs(total_desp_receptores) > 0:
+                    res_cc_full.loc[idx_obras, 'Rateio Estrutura'] = (
+                        res_cc_full.loc[idx_obras, 'Despesa Direta'] / total_desp_receptores
+                    ) * bolo_rateio
+
+                res_cc_final = res_cc_full[res_cc_full['Logica'] == 'obra'].copy()
+                res_cc_final['Resultado Real'] = (
+                    res_cc_final['Receitas'] +
+                    res_cc_final['Despesa Direta'] +
+                    res_cc_final['Rateio Estrutura']
+                )
+
+                cols_v = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Rateio Estrutura', 'Resultado Real']
+
             else:
                 res_cc_final = res_cc_full.copy()
                 res_cc_final['Resultado'] = res_cc_final['Receitas'] + res_cc_final['Despesa Direta']
                 cols_v = ['Centro de Custo', 'Receitas', 'Despesa Direta', 'Resultado']
 
-            # 3. FILTRO DE EXIBIÇÃO (SÓ AGORA!)
-            # Se você selecionou obras específicas na sidebar, elas serão filtradas aqui após o cálculo
             if "Todos" not in cc_sel and cc_sel:
                 res_cc_final = res_cc_final[res_cc_final['Centro de Custo'].isin(cc_sel)]
 
-            # Formatação e Totais
             res_cc_final = res_cc_final.sort_values(by=cols_v[-1])
             somas = res_cc_final[cols_v[1:]].sum()
-            linha_t = pd.DataFrame([['TOTAL CONSOLIDADO (FILTRADO)'] + somas.tolist()], columns=cols_v)
+            linha_t = pd.DataFrame(
+                [['TOTAL CONSOLIDADO (FILTRADO)'] + somas.tolist()],
+                columns=cols_v
+            )
             res_cc_final = pd.concat([linha_t, res_cc_final], ignore_index=True)
 
-            st.dataframe(res_cc_final[cols_v].style.format({c: formatar_moeda_br for c in cols_v[1:]}), use_container_width=True)
-            
+            st.dataframe(
+                res_cc_final[cols_v].style.format({c: formatar_moeda_br for c in cols_v[1:]}),
+                use_container_width=True
+            )
+
             buffer_cc = io.BytesIO()
-            with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer: res_cc_final.to_excel(writer, index=False)
-            st.download_button(label="📥 Exportar Obras (Excel)", data=buffer_cc.getvalue(), file_name="Obras_CustoReal.xlsx")
+            with pd.ExcelWriter(buffer_cc, engine='openpyxl') as writer:
+                res_cc_final.to_excel(writer, index=False)
+
+            st.download_button(
+                label="📥 Exportar Obras (Excel)",
+                data=buffer_cc.getvalue(),
+                file_name="Obras_CustoReal.xlsx"
+            )
+
         else:
             st.warning("Sem dados para o período selecionado.")
 # --- FUNÇÕES DE SUPORTE ADICIONAIS ---
