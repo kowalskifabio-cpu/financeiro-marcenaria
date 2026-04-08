@@ -714,18 +714,32 @@ with aba5:
                 for aba_nome in abas_desejadas:
                     if aba_nome in abas_existentes:
                         try:
-                            df_m = carregar_aba_mensal(aba_nome)
-                            if df_m.empty:
-                                continue
-                            if "Todos" not in cc_sel and cc_sel:
-                                if 'Centro de Custo' in df_m.columns:
-                                    df_m = df_m[df_m['Centro de Custo'].isin(cc_sel)]
+                                            df_m = carregar_aba_mensal(aba_nome)
+
+                                            if df_m.empty:
+                                                continue
                             
-                            # Mantendo a conta exata do Excel para casar com o Nível 4 da Base
-                            df_m['ID_TEXTO'] = df_m['Conta_ID'].astype(str).str.strip()
-                            somas = df_m.groupby('ID_TEXTO')['Valor_Final'].sum().to_dict()
-                            for conta, valor in somas.items():
-                                map_res[conta] = map_res.get(conta, 0) + valor
+                                            if "Todos" not in cc_sel and cc_sel:
+                                                if 'Centro de Custo' in df_m.columns:
+                                                    df_m = df_m[df_m['Centro de Custo'].isin(cc_sel)]
+                            
+                                            if 'Conta_ID' not in df_m.columns:
+                                                if 'C. Resultado' in df_m.columns:
+                                                    df_m['Conta_ID'] = (
+                                                        df_m['C. Resultado']
+                                                        .astype(str)
+                                                        .str.split(' ')
+                                                        .str[0]
+                                                        .str.strip()
+                                                    )
+                                                else:
+                                                    continue
+                            
+                                            df_m['ID_TEXTO'] = df_m['Conta_ID'].astype(str).str.strip()
+                                            somas = df_m.groupby('ID_TEXTO')['Valor_Final'].sum().to_dict()
+                            
+                                            for conta, valor in somas.items():
+                                                map_res[conta] = map_res.get(conta, 0) + valor
                         except: pass
                 return map_res
 
