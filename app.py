@@ -11,6 +11,9 @@ import time
 from datetime import datetime
 import calendar
 
+def mostrar_erro(contexto, erro):
+    st.error(f"❌ {contexto}: {type(erro).__name__} - {erro}")
+
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
 
