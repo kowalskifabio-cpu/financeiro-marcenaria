@@ -601,7 +601,7 @@ with aba4:
                 df_rateio_config = carregar_logica_rateio()
 
                 if df_rateio_config.empty:
-                    st.error("❌ Não foi possível ler a configuração da aba 'Rateio'.")
+                    st.info("ℹ️ A leitura da aba 'Rateio' falhou temporariamente. Atualize a página e tente novamente.")
                     st.stop()
 
                 col_logica = df_rateio_config.columns[0]
