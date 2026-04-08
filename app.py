@@ -833,8 +833,23 @@ with aba6:
                 mv = {}
                 for a in lista:
                     try:
-                        df_m = pd.DataFrame(spreadsheet.worksheet(a).get_all_records())
-                        df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+                        df_m = carregar_aba_mensal(a)
+
+                        if df_m.empty:
+                            continue
+                        
+                        if 'Conta_ID' not in df_m.columns:
+                            if 'C. Resultado' in df_m.columns:
+                                df_m['Conta_ID'] = (
+                                    df_m['C. Resultado']
+                                    .astype(str)
+                                    .str.split(' ')
+                                    .str[0]
+                                    .str.strip()
+                                )
+                            else:
+                                continue
+                        
                         px = df_m.groupby('Conta_ID')['Valor_Final'].sum().to_dict()
                         for k,v in px.items(): mv[str(k).strip()] = mv.get(str(k).strip(),0)+v
                     except: pass
