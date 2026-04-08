@@ -389,7 +389,36 @@ def gerar_dados_pizza(df, nivel, limite=10):
         })
         return pd.concat([principais, outros_df], ignore_index=True)
 
-    return dados
+   return dados
+
+
+@st.cache_data(ttl=600)
+def carregar_aba_mensal(nome_aba):
+    ultimo_erro = None
+
+    for tentativa in range(3):
+        try:
+            df = pd.DataFrame(spreadsheet.worksheet(nome_aba).get_all_records())
+
+            if df.empty:
+                return pd.DataFrame()
+
+            df.columns = [str(c).strip() for c in df.columns]
+
+            if 'Valor_Final' in df.columns:
+                df['Valor_Final'] = pd.to_numeric(df['Valor_Final'], errors='coerce').fillna(0)
+
+            return df
+
+        except Exception as e:
+            ultimo_erro = e
+            if "429" in str(e) or "quota" in str(e).lower():
+                time.sleep(2)
+                continue
+            break
+
+    return pd.DataFrame()
+
 with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento", value=False, key="ocultar_aba2")
