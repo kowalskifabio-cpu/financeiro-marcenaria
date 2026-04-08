@@ -243,7 +243,7 @@ with aba1:
         dados_upload = [df_carga.columns.tolist()] + df_carga.fillna('').astype(str).values.tolist()
         ws.update(dados_upload)
 
-        st.cache_data.clear()
+       
         st.success(f"✅ Dados de {m_ref}/{a_ref} salvos! APP atualizado.")
         # --- FILTROS SIDEBAR (BI MENSAL) ---
 st.sidebar.header("Filtros de Análise")
