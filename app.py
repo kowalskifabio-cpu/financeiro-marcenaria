@@ -389,8 +389,7 @@ def gerar_dados_pizza(df, nivel, limite=10):
         })
         return pd.concat([principais, outros_df], ignore_index=True)
 
-   return dados
-
+   
 
 @st.cache_data(ttl=600)
 def carregar_aba_mensal(nome_aba):
