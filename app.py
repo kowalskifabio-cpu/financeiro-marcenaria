@@ -49,19 +49,15 @@ def get_gspread_client():
             return None
 
         info = dict(st.secrets["gcp_service_account"])
-
-        # 👇 AQUI ESTÁ A CORREÇÃO REAL
         info["private_key"] = normalizar_private_key(info["private_key"])
 
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
 
     except Exception as e:
-        st.error(f"Erro ao autorizar Google: {e}")
+        mostrar_erro("Erro ao autorizar Google", e)
         return None
-    except Exception as e:
-        st.error(f"Erro ao autorizar Google: {e}")
-        return None
+        
 client = get_gspread_client()
 
 @st.cache_resource(ttl=3600)
