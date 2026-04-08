@@ -387,7 +387,7 @@ with aba2:
     st.markdown("""<style>.stDataFrame div[data-testid="stHorizontalScrollContainer"] { transform: rotateX(180deg); } .stDataFrame div[data-testid="stHorizontalScrollContainer"] > div { transform: rotateX(180deg); }</style>""", unsafe_allow_html=True)
     ocultar_vazios_aba2 = st.checkbox("🚫 Ocultar Contas sem Movimento", value=False, key="ocultar_aba2")
     if st.button("📊 Gerar Relatório Filtrado", key="btn_aba2"):
-    df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
+        df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
 
     if df_res is None:
         st.error("❌ Não foi possível gerar o relatório.")
