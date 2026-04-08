@@ -714,8 +714,9 @@ with aba5:
                 for aba_nome in abas_desejadas:
                     if aba_nome in abas_existentes:
                         try:
-                            df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
-                            df_m['Valor_Final'] = pd.to_numeric(df_m['Valor_Final'], errors='coerce').fillna(0)
+                            df_m = carregar_aba_mensal(aba_nome)
+                            if df_m.empty:
+                                continue
                             if "Todos" not in cc_sel and cc_sel:
                                 if 'Centro de Custo' in df_m.columns:
                                     df_m = df_m[df_m['Centro de Custo'].isin(cc_sel)]
