@@ -671,8 +671,7 @@ with aba5:
         
     if st.button("🔄 Executar Comparativo", key="btn_aba5_v16_5"):
         # Limpeza de cache para evitar o erro do "reboot"
-        st.cache_data.clear()
-        
+                
         df_base_c = carregar_aba_base().copy()
         if not df_base_c.empty:
             df_base_c.columns = [str(c).strip() for c in df_base_c.columns]
