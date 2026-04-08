@@ -267,16 +267,23 @@ niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4
 
 @st.cache_data(ttl=600)
 def carregar_aba_base():
+    ultimo_erro = None
+
     for tentativa in range(3):
         try:
             ws = spreadsheet.worksheet("Base")
             df = pd.DataFrame(ws.get_all_records())
             return df
         except Exception as e:
+            ultimo_erro = e
             if "429" in str(e) or "quota" in str(e).lower():
                 time.sleep(3)
                 continue
-            time.sleep(2)
+            break
+
+    if ultimo_erro:
+        mostrar_erro("Erro ao ler aba 'Base'", ultimo_erro)
+
     return pd.DataFrame()
 
 
