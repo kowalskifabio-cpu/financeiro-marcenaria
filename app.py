@@ -252,13 +252,15 @@ meses_sel = st.sidebar.multiselect("Meses (Filtro Geral)", meses_disponiveis, de
 @st.cache_data(ttl=600)
 def obter_centros_custo(abas_tuple):
     centros = set()
+
     for aba_nome in abas_tuple:
         try:
             df_m = pd.DataFrame(spreadsheet.worksheet(aba_nome).get_all_records())
             if 'Centro de Custo' in df_m.columns:
                 centros.update(df_m['Centro de Custo'].astype(str).unique())
-        except:
+        except Exception as e:
             pass
+
     return sorted(list(centros))
 
 lista_cc = obter_centros_custo(tuple(abas_existentes))
