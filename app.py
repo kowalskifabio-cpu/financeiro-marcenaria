@@ -740,7 +740,8 @@ with aba5:
                             
                                             for conta, valor in somas.items():
                                                 map_res[conta] = map_res.get(conta, 0) + valor
-                        except: pass
+                        except Exception as e:
+                            st.warning(f"Falha ao processar aba {aba_nome}: {e}")
                 return map_res
 
             dados_a = calc_soberano(aa, ma)
