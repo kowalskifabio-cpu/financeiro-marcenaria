@@ -1079,6 +1079,8 @@ with aba9:
             (res_cc_full['Despesa Direta'] != 0)
         )
 
+        total_desp_receptores = res_cc_full.loc[idx_obras, 'Despesa Direta'].sum()
+        
         rateio_recebido_obra = 0.0
 
         if abs(total_desp_receptores) > 0:
