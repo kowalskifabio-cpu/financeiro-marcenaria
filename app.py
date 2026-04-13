@@ -949,15 +949,7 @@ with aba9:
             key="meses_comp_obra"
         )
 
-    # ===== Rateio =====
-    df_rateio = carregar_logica_rateio()
-    if df_rateio.empty:
-        st.info("ℹ️ A leitura da aba 'Rateio' falhou temporariamente. Atualize a página e tente novamente.")
-        st.stop()
-
-    col_logica = df_rateio.columns[0]
-    col_cc = df_rateio.columns[1]
-
+   
     # ===== Obra vinda SOMENTE do filtro lateral =====
     obras_selecionadas = [c for c in cc_sel if c != "Todos"]
 
@@ -975,6 +967,15 @@ with aba9:
     # ===== Botão =====
     if st.button("📊 Processar Composição da Obra", key="btn_comp_obra"):
 
+         # ===== Rateio =====
+        df_rateio = carregar_logica_rateio()
+        if df_rateio.empty:
+            st.info("ℹ️ A leitura da aba 'Rateio' falhou temporariamente. Atualize a página e tente novamente.")
+            st.stop()
+    
+        col_logica = df_rateio.columns[0]
+        col_cc = df_rateio.columns[1]
+        
         abas_desejadas = [
             f"{m}_{a}"
             for a in anos_comp_sel
