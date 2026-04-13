@@ -930,114 +930,195 @@ with aba7:
 with aba9:
     st.subheader("🧾 Composição da Obra")
 
-    if "Todos" in cc_sel or not cc_sel:
-        st.info("Selecione uma obra específica no filtro de Centro de Custo.")
+    # ===== Filtros próprios da aba =====
+    col_f1, col_f2 = st.columns(2)
+
+    with col_f1:
+        anos_comp_sel = st.multiselect(
+            "Anos da Obra",
+            [2024, 2025, 2026, 2027],
+            default=[2026],
+            key="anos_comp_obra"
+        )
+
+    with col_f2:
+        meses_comp_sel = st.multiselect(
+            "Meses da Obra",
+            meses_lista,
+            default=meses_lista,
+            key="meses_comp_obra"
+        )
+
+    # ===== Carregar lógica de rateio =====
+    df_rateio = carregar_logica_rateio()
+    if df_rateio.empty:
+        st.info("ℹ️ A leitura da aba 'Rateio' falhou temporariamente. Atualize a página e tente novamente.")
         st.stop()
 
-    obra_sel = cc_sel[0]
+    # ===== Lista de obras válidas =====
+    col_logica = df_rateio.columns[0]
+    col_cc = df_rateio.columns[1]
+
+    obras_validas = sorted(
+        df_rateio[df_rateio[col_logica] == "obra"][col_cc].astype(str).str.strip().unique().tolist()
+    )
+
+    if not obras_validas:
+        st.warning("Nenhuma obra classificada como 'obra' foi encontrada na aba Rateio.")
+        st.stop()
+
+    obra_sel = st.selectbox(
+        "Selecione a Obra",
+        obras_validas,
+        key="obra_comp_sel"
+    )
 
     st.write(f"📍 Obra selecionada: **{obra_sel}**")
 
-    # ===== Carregar Rateio =====
-    df_rateio = carregar_logica_rateio()
-    if df_rateio.empty:
-        st.warning("Não foi possível carregar a lógica de rateio.")
-        st.stop()
+    # ===== Botão de processamento =====
+    if st.button("📊 Processar Composição da Obra", key="btn_comp_obra"):
 
-    # ===== Separar listas =====
-    cc_obra = df_rateio[df_rateio.iloc[:,0] == "obra"].iloc[:,1].tolist()
-    cc_rateio = df_rateio[df_rateio.iloc[:,0] == "rateio"].iloc[:,1].tolist()
+        abas_desejadas = [
+            f"{m}_{a}"
+            for a in anos_comp_sel
+            for m in meses_comp_sel
+            if f"{m}_{a}" in abas_existentes
+        ]
 
-    # ===== Carregar dados mensais =====
-    abas_desejadas = [f"{m}_{a}" for a in ano_sel for m in meses_sel]
-    lista_dfs = []
+        if not abas_desejadas:
+            st.warning("Nenhuma aba encontrada para o período selecionado.")
+            st.stop()
 
-    for aba_nome in abas_desejadas:
-        if aba_nome in abas_existentes:
+        lista_dfs = []
+
+        for aba_nome in abas_desejadas:
             df_m = carregar_aba_mensal(aba_nome)
             if not df_m.empty:
                 lista_dfs.append(df_m)
 
-    if not lista_dfs:
-        st.warning("Nenhum dado encontrado.")
-        st.stop()
-
-    df = pd.concat(lista_dfs, ignore_index=True)
-
-    # ===== Preparação =====
-    if 'Conta_ID' not in df.columns:
-        if 'C. Resultado' in df.columns:
-            df['Conta_ID'] = (
-                df['C. Resultado']
-                .astype(str)
-                .str.split(' ')
-                .str[0]
-                .str.strip()
-            )
-        else:
-            st.error("Não foi possível identificar a conta.")
+        if not lista_dfs:
+            st.warning("Nenhum dado encontrado para o período selecionado.")
             st.stop()
 
-    df['Conta_ID'] = df['Conta_ID'].astype(str).str.strip()
-    df['Valor_Final'] = pd.to_numeric(df['Valor_Final'], errors='coerce').fillna(0)
+        df = pd.concat(lista_dfs, ignore_index=True)
 
-    # ===== Separar dados =====
-    df_obra = df[df['Centro de Custo'] == obra_sel]
-    df_rateio_pool = df[df['Centro de Custo'].isin(cc_rateio)]
+        # ===== Preparação =====
+        if 'Valor_Final' not in df.columns:
+            st.error("A base mensal não possui a coluna 'Valor_Final'.")
+            st.stop()
 
-    # ===== Direto por categoria =====
-    direto = df_obra.groupby('Conta_ID')['Valor_Final'].sum()
+        df['Valor_Final'] = pd.to_numeric(df['Valor_Final'], errors='coerce').fillna(0)
 
-    # ===== Calcular bolo de rateio =====
-    bolo_rateio = df_rateio_pool['Valor_Final'].sum()
+        if 'Conta_ID' not in df.columns:
+            if 'C. Resultado' in df.columns:
+                df['Conta_ID'] = (
+                    df['C. Resultado']
+                    .astype(str)
+                    .str.split(' ')
+                    .str[0]
+                    .str.strip()
+                )
+            else:
+                st.error("Não foi possível identificar a conta. Base sem 'Conta_ID' e sem 'C. Resultado'.")
+                st.stop()
 
-    total_base = direto.sum()
+        df['Conta_ID'] = df['Conta_ID'].astype(str).str.strip()
+        df['Centro de Custo'] = df['Centro de Custo'].astype(str).str.strip()
 
-    if total_base == 0:
-        st.warning("Obra sem base para rateio.")
-        st.stop()
+        # ===== Identificar centros rateio =====
+        cc_rateio = df_rateio[df_rateio[col_logica] == "rateio"][col_cc].astype(str).str.strip().tolist()
 
-    # ===== Distribuição proporcional =====
-    proporcao = direto / total_base
-    rateado = proporcao * bolo_rateio
+        # ===== Dados da obra selecionada =====
+        df_obra = df[df['Centro de Custo'] == obra_sel].copy()
 
-    final = direto + rateado
+        if df_obra.empty:
+            st.warning("A obra selecionada não possui lançamentos no período informado.")
+            st.stop()
 
-    # ===== Montar tabela =====
-    df_final = pd.DataFrame({
-        'Categoria': direto.index,
-        'Direto': direto.values,
-        'Rateado': rateado.values,
-        'Final': final.values
-    })
+        # ===== Direto por categoria =====
+        direto = df_obra.groupby('Conta_ID')['Valor_Final'].sum()
 
-    # ===== Total =====
-    total_row = pd.DataFrame([{
-        'Categoria': 'TOTAL',
-        'Direto': df_final['Direto'].sum(),
-        'Rateado': df_final['Rateado'].sum(),
-        'Final': df_final['Final'].sum()
-    }])
+        # ===== Bolo de rateio =====
+        df_pool_rateio = df[df['Centro de Custo'].isin(cc_rateio)].copy()
+        bolo_rateio = df_pool_rateio['Valor_Final'].sum()
 
-    df_final = pd.concat([df_final, total_row], ignore_index=True)
+        total_direto_obra = direto.sum()
 
-    # ===== Exibir =====
-    st.dataframe(
-        df_final.style.format({
-            'Direto': 'R$ {:,.2f}',
-            'Rateado': 'R$ {:,.2f}',
-            'Final': 'R$ {:,.2f}'
-        }),
-        use_container_width=True
-    )
+        if total_direto_obra == 0:
+            st.warning("A obra selecionada não possui base direta para distribuir o rateio.")
+            st.stop()
 
-    # ===== Exportar =====
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df_final.to_excel(writer, index=False, sheet_name='Composicao')
+        # ===== Distribuição proporcional do rateio entre categorias da obra =====
+        proporcao = direto / total_direto_obra
+        rateado = proporcao * bolo_rateio
+        final = direto + rateado
 
-    st.download_button(
-        label="📥 Exportar Composição (Excel)",
-        data=buffer.getvalue(),
-        file_name=f"Composicao_{obra_sel}.xlsx"
-    )
+        # ===== Buscar descrição da conta na Base =====
+        df_base_comp = carregar_aba_base().copy()
+        mapa_desc = {}
+
+        if not df_base_comp.empty and len(df_base_comp.columns) >= 2:
+            df_base_comp.columns = [str(c).strip() for c in df_base_comp.columns]
+            df_base_comp = df_base_comp.rename(columns={
+                df_base_comp.columns[0]: 'Conta',
+                df_base_comp.columns[1]: 'Descrição'
+            })
+
+            if 'Nivel' in df_base_comp.columns:
+                pass
+            elif len(df_base_comp.columns) >= 3:
+                df_base_comp = df_base_comp.rename(columns={df_base_comp.columns[2]: 'Nivel'})
+
+            if 'Nivel' in df_base_comp.columns:
+                df_base_comp['Nivel'] = pd.to_numeric(df_base_comp['Nivel'], errors='coerce')
+                df_base_comp = df_base_comp.dropna(subset=['Nivel']).copy()
+                df_base_comp['Nivel'] = df_base_comp['Nivel'].astype(int)
+                df_base_comp['Conta'] = df_base_comp.apply(
+                    lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']),
+                    axis=1
+                ).astype(str).str.strip()
+            else:
+                df_base_comp['Conta'] = df_base_comp['Conta'].astype(str).str.strip()
+
+            mapa_desc = dict(zip(df_base_comp['Conta'], df_base_comp['Descrição']))
+
+        # ===== Montar tabela final =====
+        df_final = pd.DataFrame({
+            'Categoria': direto.index,
+            'Descrição': [mapa_desc.get(conta, conta) for conta in direto.index],
+            'Direto': direto.values,
+            'Rateado': rateado.values,
+            'Final': final.values
+        })
+
+        df_final = df_final.sort_values(by='Final')
+
+        total_row = pd.DataFrame([{
+            'Categoria': 'TOTAL',
+            'Descrição': '',
+            'Direto': df_final['Direto'].sum(),
+            'Rateado': df_final['Rateado'].sum(),
+            'Final': df_final['Final'].sum()
+        }])
+
+        df_final = pd.concat([df_final, total_row], ignore_index=True)
+
+        st.dataframe(
+            df_final.style.format({
+                'Direto': formatar_moeda_br,
+                'Rateado': formatar_moeda_br,
+                'Final': formatar_moeda_br
+            }),
+            use_container_width=True,
+            height=700
+        )
+
+        buffer_comp = io.BytesIO()
+        with pd.ExcelWriter(buffer_comp, engine='openpyxl') as writer:
+            df_final.to_excel(writer, index=False, sheet_name='Composicao_Obra')
+
+        st.download_button(
+            label="📥 Exportar Composição da Obra (Excel)",
+            data=buffer_comp.getvalue(),
+            file_name=f"Composicao_Obra_{obra_sel}.xlsx"
+        )
