@@ -957,12 +957,13 @@ with aba9:
         st.info("Selecione uma obra específica no filtro lateral de Centro de Custo.")
         st.stop()
 
-    if len(obras_selecionadas) > 1:
-        st.warning("Selecione apenas uma obra no filtro lateral de Centro de Custo para ver a composição.")
+    obras_sel = [c for c in cc_sel if c != "Todos"]
+
+    if not obras_sel:
+        st.info("Selecione ao menos uma obra no filtro lateral de Centro de Custo.")
         st.stop()
 
-    obra_sel = obras_selecionadas[0]
-    st.write(f"📍 Obra selecionada no filtro lateral: **{obra_sel}**")
+    st.write(f"📍 Obras selecionadas no filtro lateral: **{len(obras_sel)}**")
 
     # ===== Botão =====
     if st.button("📊 Processar Composição da Obra", key="btn_comp_obra"):
