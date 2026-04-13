@@ -949,14 +949,7 @@ with aba9:
             key="meses_comp_obra"
         )
 
-   
-    # ===== Obra vinda SOMENTE do filtro lateral =====
-    obras_selecionadas = [c for c in cc_sel if c != "Todos"]
-
-    if not obras_selecionadas:
-        st.info("Selecione uma obra específica no filtro lateral de Centro de Custo.")
-        st.stop()
-
+    # ===== Obras vindas SOMENTE do filtro lateral =====
     obras_sel = [c for c in cc_sel if c != "Todos"]
 
     if not obras_sel:
@@ -968,15 +961,15 @@ with aba9:
     # ===== Botão =====
     if st.button("📊 Processar Composição da Obra", key="btn_comp_obra"):
 
-         # ===== Rateio =====
+        # ===== Rateio =====
         df_rateio = carregar_logica_rateio()
         if df_rateio.empty:
             st.info("ℹ️ A leitura da aba 'Rateio' falhou temporariamente. Atualize a página e tente novamente.")
             st.stop()
-    
+
         col_logica = df_rateio.columns[0]
         col_cc = df_rateio.columns[1]
-        
+
         abas_desejadas = [
             f"{m}_{a}"
             for a in anos_comp_sel
@@ -1029,20 +1022,33 @@ with aba9:
         df_all['Centro de Custo'] = df_all['Centro de Custo'].astype(str).str.strip()
 
         # ==========================================================
-        # 1) DIRETO POR CATEGORIA DA OBRA
-        #    Aqui seguimos a lógica da aba Obras:
-        #    Despesa Direta = só contas começando com '02'
+        # 1) DIRETO POR CATEGORIA DO CONJUNTO SELECIONADO
+        #    Receitas = contas 01
+        #    Despesas = contas 02
         # ==========================================================
+        df_obra_rec = df_all[
+            (df_all['Centro de Custo'].isin(obras_sel)) &
+            (df_all['Conta_ID'].str.startswith('01'))
+        ].copy()
+
         df_obra_desp = df_all[
             (df_all['Centro de Custo'].isin(obras_sel)) &
             (df_all['Conta_ID'].str.startswith('02'))
         ].copy()
 
-        if df_obra_desp.empty:
-            st.warning("A obra selecionada não possui despesas diretas no período informado.")
+        if df_obra_rec.empty and df_obra_desp.empty:
+            st.warning("As obras selecionadas não possuem lançamentos no período informado.")
             st.stop()
 
-        direto = df_obra_desp.groupby('Conta_ID')['Valor_Final'].sum()
+        direto_rec = (
+            df_obra_rec.groupby('Conta_ID')['Valor_Final'].sum()
+            if not df_obra_rec.empty else pd.Series(dtype=float)
+        )
+
+        direto_desp = (
+            df_obra_desp.groupby('Conta_ID')['Valor_Final'].sum()
+            if not df_obra_desp.empty else pd.Series(dtype=float)
+        )
 
         # ==========================================================
         # 2) REPRODUZIR EXATAMENTE A LÓGICA DA ABA OBRAS
@@ -1080,7 +1086,7 @@ with aba9:
         )
 
         total_desp_receptores = res_cc_full.loc[idx_obras, 'Despesa Direta'].sum()
-        
+
         rateio_recebido_obra = 0.0
 
         if abs(total_desp_receptores) > 0:
@@ -1091,17 +1097,17 @@ with aba9:
             rateio_recebido_obra = (desp_direta_conjunto / total_desp_receptores) * bolo_rateio
 
         # ==========================================================
-        # 3) DISTRIBUIR O RATEIO RECEBIDO PELAS CATEGORIAS DA OBRA
+        # 3) DISTRIBUIR O RATEIO RECEBIDO APENAS NAS DESPESAS
         # ==========================================================
-        total_direto_obra = direto.sum()
+        total_desp_direta_obra = direto_desp.sum()
 
-        if total_direto_obra == 0:
-            st.warning("A obra selecionada não possui base direta para distribuir o rateio.")
+        if total_desp_direta_obra == 0:
+            st.warning("As obras selecionadas não possuem base de despesa direta para distribuir o rateio.")
             st.stop()
 
-        proporcao = direto / total_direto_obra
-        rateado = proporcao * rateio_recebido_obra
-        final = direto + rateado
+        proporcao_desp = direto_desp / total_desp_direta_obra
+        rateado_desp = proporcao_desp * rateio_recebido_obra
+        final_desp = direto_desp + rateado_desp
 
         # ==========================================================
         # 4) DESCRIÇÕES DAS CONTAS
@@ -1129,17 +1135,26 @@ with aba9:
             mapa_desc = dict(zip(df_base_comp['Conta'], df_base_comp['Descrição']))
 
         # ==========================================================
-        # 5) TABELA FINAL
+        # 5) TABELA FINAL COM RECEITAS + DESPESAS
         # ==========================================================
-        df_final = pd.DataFrame({
-            'Categoria': direto.index,
-            'Descrição': [mapa_desc.get(conta, conta) for conta in direto.index],
-            'Direto': direto.values,
-            'Rateado': rateado.values,
-            'Final': final.values
+        df_rec_final = pd.DataFrame({
+            'Categoria': direto_rec.index,
+            'Descrição': [mapa_desc.get(conta, conta) for conta in direto_rec.index],
+            'Direto': direto_rec.values,
+            'Rateado': [0.0] * len(direto_rec),
+            'Final': direto_rec.values
         })
 
-        df_final = df_final.sort_values(by='Final')
+        df_desp_final = pd.DataFrame({
+            'Categoria': direto_desp.index,
+            'Descrição': [mapa_desc.get(conta, conta) for conta in direto_desp.index],
+            'Direto': direto_desp.values,
+            'Rateado': rateado_desp.values,
+            'Final': final_desp.values
+        })
+
+        df_final = pd.concat([df_rec_final, df_desp_final], ignore_index=True)
+        df_final = df_final.sort_values(by='Categoria')
 
         total_row = pd.DataFrame([{
             'Categoria': 'TOTAL',
