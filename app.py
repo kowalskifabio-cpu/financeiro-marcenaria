@@ -949,24 +949,30 @@ with aba9:
             key="meses_comp_obra"
         )
 
-    # ===== Carregar lógica de rateio =====
+    # ===== Rateio =====
     df_rateio = carregar_logica_rateio()
     if df_rateio.empty:
         st.info("ℹ️ A leitura da aba 'Rateio' falhou temporariamente. Atualize a página e tente novamente.")
         st.stop()
 
-    # ===== Lista de obras válidas =====
     col_logica = df_rateio.columns[0]
     col_cc = df_rateio.columns[1]
 
-    if "Todos" in cc_sel or not cc_sel:
+    # ===== Obra vinda SOMENTE do filtro lateral =====
+    obras_selecionadas = [c for c in cc_sel if c != "Todos"]
+
+    if not obras_selecionadas:
         st.info("Selecione uma obra específica no filtro lateral de Centro de Custo.")
         st.stop()
 
-    obra_sel = cc_sel[0]
+    if len(obras_selecionadas) > 1:
+        st.warning("Selecione apenas uma obra no filtro lateral de Centro de Custo para ver a composição.")
+        st.stop()
+
+    obra_sel = obras_selecionadas[0]
     st.write(f"📍 Obra selecionada no filtro lateral: **{obra_sel}**")
 
-    # ===== Botão de processamento =====
+    # ===== Botão =====
     if st.button("📊 Processar Composição da Obra", key="btn_comp_obra"):
 
         abas_desejadas = [
@@ -991,89 +997,138 @@ with aba9:
             st.warning("Nenhum dado encontrado para o período selecionado.")
             st.stop()
 
-        df = pd.concat(lista_dfs, ignore_index=True)
+        df_all = pd.concat(lista_dfs, ignore_index=True)
 
         # ===== Preparação =====
-        if 'Valor_Final' not in df.columns:
-            st.error("A base mensal não possui a coluna 'Valor_Final'.")
+        if 'Valor_Final' not in df_all.columns:
+            st.error("❌ A base consolidada não possui a coluna 'Valor_Final'.")
             st.stop()
 
-        df['Valor_Final'] = pd.to_numeric(df['Valor_Final'], errors='coerce').fillna(0)
+        if 'Centro de Custo' not in df_all.columns:
+            st.error("❌ A base consolidada não possui a coluna 'Centro de Custo'.")
+            st.stop()
 
-        if 'Conta_ID' not in df.columns:
-            if 'C. Resultado' in df.columns:
-                df['Conta_ID'] = (
-                    df['C. Resultado']
+        df_all['Valor_Final'] = pd.to_numeric(df_all['Valor_Final'], errors='coerce').fillna(0)
+
+        if 'Conta_ID' not in df_all.columns:
+            if 'C. Resultado' in df_all.columns:
+                df_all['Conta_ID'] = (
+                    df_all['C. Resultado']
                     .astype(str)
                     .str.split(' ')
                     .str[0]
                     .str.strip()
                 )
             else:
-                st.error("Não foi possível identificar a conta. Base sem 'Conta_ID' e sem 'C. Resultado'.")
+                st.error("❌ A base consolidada não possui 'Conta_ID' nem 'C. Resultado'.")
                 st.stop()
 
-        df['Conta_ID'] = df['Conta_ID'].astype(str).str.strip()
-        df['Centro de Custo'] = df['Centro de Custo'].astype(str).str.strip()
+        df_all['Conta_ID'] = df_all['Conta_ID'].astype(str).str.strip()
+        df_all['Centro de Custo'] = df_all['Centro de Custo'].astype(str).str.strip()
 
-        # ===== Identificar centros rateio =====
-        cc_rateio = df_rateio[df_rateio[col_logica] == "rateio"][col_cc].astype(str).str.strip().tolist()
+        # ==========================================================
+        # 1) DIRETO POR CATEGORIA DA OBRA
+        #    Aqui seguimos a lógica da aba Obras:
+        #    Despesa Direta = só contas começando com '02'
+        # ==========================================================
+        df_obra_desp = df_all[
+            (df_all['Centro de Custo'] == obra_sel) &
+            (df_all['Conta_ID'].str.startswith('02'))
+        ].copy()
 
-        # ===== Dados da obra selecionada =====
-        df_obra = df[df['Centro de Custo'] == obra_sel].copy()
-
-        if df_obra.empty:
-            st.warning("A obra selecionada não possui lançamentos no período informado.")
+        if df_obra_desp.empty:
+            st.warning("A obra selecionada não possui despesas diretas no período informado.")
             st.stop()
 
-        # ===== Direto por categoria =====
-        direto = df_obra.groupby('Conta_ID')['Valor_Final'].sum()
+        direto = df_obra_desp.groupby('Conta_ID')['Valor_Final'].sum()
 
-        # ===== Bolo de rateio =====
-        df_pool_rateio = df[df['Centro de Custo'].isin(cc_rateio)].copy()
-        bolo_rateio = df_pool_rateio['Valor_Final'].sum()
+        # ==========================================================
+        # 2) REPRODUZIR EXATAMENTE A LÓGICA DA ABA OBRAS
+        # ==========================================================
+        mapa_logica = dict(
+            zip(
+                df_rateio[col_cc].astype(str).str.strip(),
+                df_rateio[col_logica].astype(str).str.lower().str.strip()
+            )
+        )
 
+        res_cc_full = df_all.groupby('Centro de Custo').apply(
+            lambda x: pd.Series({
+                'Receitas': x[x['Conta_ID'].str.startswith('01')]['Valor_Final'].sum(),
+                'Despesa Direta': x[x['Conta_ID'].str.startswith('02')]['Valor_Final'].sum(),
+            })
+        ).reset_index()
+
+        res_cc_full['Logica'] = (
+            res_cc_full['Centro de Custo']
+            .astype(str)
+            .str.strip()
+            .map(mapa_logica)
+            .fillna('obra')
+        )
+
+        bolo_rateio = res_cc_full.loc[
+            res_cc_full['Logica'] == 'rateio',
+            'Despesa Direta'
+        ].sum()
+
+        idx_obras = (
+            (res_cc_full['Logica'] == 'obra') &
+            (res_cc_full['Despesa Direta'] != 0)
+        )
+
+        total_desp_receptores = res_cc_full.loc[idx_obras, 'Despesa Direta'].sum()
+
+        rateio_recebido_obra = 0.0
+
+        if abs(total_desp_receptores) > 0:
+            linha_obra = res_cc_full[res_cc_full['Centro de Custo'] == obra_sel].copy()
+
+            if not linha_obra.empty:
+                desp_direta_obra = linha_obra['Despesa Direta'].iloc[0]
+                rateio_recebido_obra = (desp_direta_obra / total_desp_receptores) * bolo_rateio
+
+        # ==========================================================
+        # 3) DISTRIBUIR O RATEIO RECEBIDO PELAS CATEGORIAS DA OBRA
+        # ==========================================================
         total_direto_obra = direto.sum()
 
         if total_direto_obra == 0:
             st.warning("A obra selecionada não possui base direta para distribuir o rateio.")
             st.stop()
 
-        # ===== Distribuição proporcional do rateio entre categorias da obra =====
         proporcao = direto / total_direto_obra
-        rateado = proporcao * bolo_rateio
+        rateado = proporcao * rateio_recebido_obra
         final = direto + rateado
 
-        # ===== Buscar descrição da conta na Base =====
+        # ==========================================================
+        # 4) DESCRIÇÕES DAS CONTAS
+        # ==========================================================
         df_base_comp = carregar_aba_base().copy()
         mapa_desc = {}
 
-        if not df_base_comp.empty and len(df_base_comp.columns) >= 2:
+        if not df_base_comp.empty and len(df_base_comp.columns) >= 3:
             df_base_comp.columns = [str(c).strip() for c in df_base_comp.columns]
             df_base_comp = df_base_comp.rename(columns={
                 df_base_comp.columns[0]: 'Conta',
-                df_base_comp.columns[1]: 'Descrição'
+                df_base_comp.columns[1]: 'Descrição',
+                df_base_comp.columns[2]: 'Nivel'
             })
 
-            if 'Nivel' in df_base_comp.columns:
-                pass
-            elif len(df_base_comp.columns) >= 3:
-                df_base_comp = df_base_comp.rename(columns={df_base_comp.columns[2]: 'Nivel'})
+            df_base_comp['Nivel'] = pd.to_numeric(df_base_comp['Nivel'], errors='coerce')
+            df_base_comp = df_base_comp.dropna(subset=['Nivel']).copy()
+            df_base_comp['Nivel'] = df_base_comp['Nivel'].astype(int)
 
-            if 'Nivel' in df_base_comp.columns:
-                df_base_comp['Nivel'] = pd.to_numeric(df_base_comp['Nivel'], errors='coerce')
-                df_base_comp = df_base_comp.dropna(subset=['Nivel']).copy()
-                df_base_comp['Nivel'] = df_base_comp['Nivel'].astype(int)
-                df_base_comp['Conta'] = df_base_comp.apply(
-                    lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']),
-                    axis=1
-                ).astype(str).str.strip()
-            else:
-                df_base_comp['Conta'] = df_base_comp['Conta'].astype(str).str.strip()
+            df_base_comp['Conta'] = df_base_comp.apply(
+                lambda x: limpar_conta_blindado(x['Conta'], x['Nivel']),
+                axis=1
+            ).astype(str).str.strip()
 
             mapa_desc = dict(zip(df_base_comp['Conta'], df_base_comp['Descrição']))
 
-        # ===== Montar tabela final =====
+        # ==========================================================
+        # 5) TABELA FINAL
+        # ==========================================================
         df_final = pd.DataFrame({
             'Categoria': direto.index,
             'Descrição': [mapa_desc.get(conta, conta) for conta in direto.index],
