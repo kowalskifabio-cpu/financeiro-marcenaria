@@ -1166,5 +1166,5 @@ with aba9:
         st.download_button(
             label="📥 Exportar Composição da Obra (Excel)",
             data=buffer_comp.getvalue(),
-            file_name=f"Composicao_Obra_{obra_sel}.xlsx"
+            file_name="Composicao_Obra_Consolidada.xlsx"
         )
