@@ -959,21 +959,12 @@ with aba9:
     col_logica = df_rateio.columns[0]
     col_cc = df_rateio.columns[1]
 
-    obras_validas = sorted(
-        df_rateio[df_rateio[col_logica] == "obra"][col_cc].astype(str).str.strip().unique().tolist()
-    )
-
-    if not obras_validas:
-        st.warning("Nenhuma obra classificada como 'obra' foi encontrada na aba Rateio.")
+    if "Todos" in cc_sel or not cc_sel:
+        st.info("Selecione uma obra específica no filtro lateral de Centro de Custo.")
         st.stop()
 
-    obra_sel = st.selectbox(
-        "Selecione a Obra",
-        obras_validas,
-        key="obra_comp_sel"
-    )
-
-    st.write(f"📍 Obra selecionada: **{obra_sel}**")
+    obra_sel = cc_sel[0]
+    st.write(f"📍 Obra selecionada no filtro lateral: **{obra_sel}**")
 
     # ===== Botão de processamento =====
     if st.button("📊 Processar Composição da Obra", key="btn_comp_obra"):
