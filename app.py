@@ -1034,7 +1034,7 @@ with aba9:
         #    Despesa Direta = só contas começando com '02'
         # ==========================================================
         df_obra_desp = df_all[
-            (df_all['Centro de Custo'] == obra_sel) &
+            (df_all['Centro de Custo'].isin(obras_sel)) &
             (df_all['Conta_ID'].str.startswith('02'))
         ].copy()
 
