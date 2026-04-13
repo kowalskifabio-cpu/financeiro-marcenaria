@@ -1079,16 +1079,14 @@ with aba9:
             (res_cc_full['Despesa Direta'] != 0)
         )
 
-        total_desp_receptores = res_cc_full.loc[idx_obras, 'Despesa Direta'].sum()
-
         rateio_recebido_obra = 0.0
 
         if abs(total_desp_receptores) > 0:
-            linha_obra = res_cc_full[res_cc_full['Centro de Custo'] == obra_sel].copy()
+            desp_direta_conjunto = res_cc_full[
+                res_cc_full['Centro de Custo'].isin(obras_sel)
+            ]['Despesa Direta'].sum()
 
-            if not linha_obra.empty:
-                desp_direta_obra = linha_obra['Despesa Direta'].iloc[0]
-                rateio_recebido_obra = (desp_direta_obra / total_desp_receptores) * bolo_rateio
+            rateio_recebido_obra = (desp_direta_conjunto / total_desp_receptores) * bolo_rateio
 
         # ==========================================================
         # 3) DISTRIBUIR O RATEIO RECEBIDO PELAS CATEGORIAS DA OBRA
