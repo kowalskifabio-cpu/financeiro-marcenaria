@@ -114,13 +114,15 @@ def filtrar_linhas_zeradas(df, colunas_valores):
         if not filhos.empty and filhos['zerado'].all(): remover_indices.add(idx)
     return df.drop(index=list(remover_indices)).drop(columns=['zerado'])
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=3600)
 def listar_abas_existentes():
-    try:
-        return [w.title for w in spreadsheet.worksheets()]
-    except Exception as e:
-        mostrar_erro("Erro ao listar abas existentes", e)
-        return []
+    abas = ["Base", "Rateio"]
+
+    for ano in [2024, 2025, 2026, 2027]:
+        for mes in meses_lista:
+            abas.append(f"{mes}_{ano}")
+
+    return abas
         
 @st.cache_data(ttl=300)
 def carregar_logica_rateio():
