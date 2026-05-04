@@ -407,7 +407,40 @@ def carregar_aba_mensal(nome_aba):
 
     for tentativa in range(3):
         try:
-            df = supabase_client.table("movimentos_financeiros").select("*").execute().data
+            def carregar_aba_mensal(nome_aba):
+                try:
+                    mes, ano = nome_aba.split("_")
+            
+                    mapa_meses = {
+                        "Janeiro": 1, "Fevereiro": 2, "Março": 3, "Abril": 4,
+                        "Maio": 5, "Junho": 6, "Julho": 7, "Agosto": 8,
+                        "Setembro": 9, "Outubro": 10, "Novembro": 11, "Dezembro": 12
+                    }
+            
+                    mes_num = mapa_meses[mes]
+            
+                    resposta = supabase_client.table("movimentos_financeiros") \
+                        .select("*") \
+                        .gte("data_baixa", f"{ano}-{mes_num:02d}-01") \
+                        .lte("data_baixa", f"{ano}-{mes_num:02d}-31") \
+                        .execute()
+            
+                    df = pd.DataFrame(resposta.data)
+            
+                    if df.empty:
+                        return pd.DataFrame()
+            
+                    df.columns = [str(c).strip() for c in df.columns]
+            
+                    if 'valor_final' in df.columns:
+                        df['Valor_Final'] = pd.to_numeric(df['valor_final'], errors='coerce').fillna(0)
+            
+                    return df
+            
+                except Exception as e:
+                    mostrar_erro("Erro ao carregar dados do Supabase", e)
+                    return pd.DataFrame()
+                    
             df = pd.DataFrame(df)
 
             if df.empty:
