@@ -310,7 +310,7 @@ def processar_bi(ano, meses, filtros_cc):
 
     df_base = carregar_aba_base().copy()
 
-    if df_base.empty:
+    if df_base is None or df_base.empty:
         st.error("❌ Não foi possível ler a aba 'Base'. Verifique se ela existe e contém dados.")
         return None, []
 
