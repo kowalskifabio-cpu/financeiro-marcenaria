@@ -308,12 +308,12 @@ def processar_bi(ano, meses, filtros_cc):
     if not meses:
         return None, []
 
-    df_base = carregar_aba_base().copy()
+    df_base = carregar_aba_base()
 
     if df_base is None or df_base.empty:
-        st.error("❌ Não foi possível ler a aba 'Base'. Verifique se ela existe e contém dados.")
-        return None, []
-
+        st.warning("Plano de contas não encontrado no Supabase.")
+        st.stop()
+        
     df_base.columns = [str(c).strip() for c in df_base.columns]
 
     if len(df_base.columns) < 3:
