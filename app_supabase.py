@@ -269,22 +269,39 @@ def carregar_logica_rateio():
 
 @st.cache_data(ttl=600)
 def carregar_movimentos_periodo(ano, meses_numeros):
+    """
+    Lê movimentos do Supabase paginando de 1000 em 1000.
+    Importante: o Supabase/PostgREST costuma limitar retorno por página.
+    Sem paginação, o app lê só parte do mês e os totais ficam muito abaixo.
+    """
     try:
         if not meses_numeros:
             return pd.DataFrame()
 
         dados = []
+        passo = 1000
+
         for mes_num in meses_numeros:
-            resposta = (
-                supabase_client
-                .table("movimentos_financeiros")
-                .select("*")
-                .eq("ano", int(ano))
-                .eq("mes", str(int(mes_num)))
-                .range(0, 999999)
-                .execute()
-            )
-            dados.extend(resposta.data or [])
+            inicio = 0
+
+            while True:
+                resposta = (
+                    supabase_client
+                    .table("movimentos_financeiros")
+                    .select("*")
+                    .eq("ano", int(ano))
+                    .eq("mes", str(int(mes_num)))
+                    .range(inicio, inicio + passo - 1)
+                    .execute()
+                )
+
+                lote = resposta.data or []
+                dados.extend(lote)
+
+                if len(lote) < passo:
+                    break
+
+                inicio += passo
 
         df = pd.DataFrame(dados)
         return normalizar_movimentos(df)
@@ -877,4 +894,3 @@ with aba9:
             df_final.to_excel(writer, index=False, sheet_name="Composicao_Obra")
 
         st.download_button("📥 Exportar Composição da Obra (Excel)", data=buffer_comp.getvalue(), file_name="Composicao_Obra_Consolidada.xlsx")
-
