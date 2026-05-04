@@ -5,3 +5,4 @@ google-auth
 openpyxl
 plotly
 google-generativeai
+supabase
