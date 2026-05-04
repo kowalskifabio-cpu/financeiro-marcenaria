@@ -351,18 +351,35 @@ def processar_bi(ano, meses, filtros_cc):
             if df_m.empty:
                 continue
 
+            df_m["Conta_ID"] = df_m["Conta_ID"].astype(str).str.strip()
             mapeamento = df_m.groupby("Conta_ID")["Valor_Final"].sum().to_dict()
-            df_base.loc[df_base["Nivel"] == 4, m] = df_base["Conta"].map(mapeamento).fillna(0.0)
 
-            for n in [3, 2]:
-                for idx, row in df_base[df_base["Nivel"] == n].iterrows():
+            # Zera o mês
+            df_base[m] = 0.0
+
+            # 1) Primeiro joga valor exatamente no nível que existir
+            df_base[m] = df_base["Conta"].map(mapeamento).fillna(0.0)
+
+            # 2) Soma níveis superiores de baixo para cima: 5 -> 4 -> 3 -> 2
+            niveis_existentes = sorted(df_base["Nivel"].dropna().unique(), reverse=True)
+
+            for n in niveis_existentes:
+                if n <= 1:
+                    continue
+
+                nivel_pai = n - 1
+
+                for idx, row in df_base[df_base["Nivel"] == nivel_pai].iterrows():
                     pref = str(row["Conta"]).strip() + "."
-                    total = df_base[
-                        (df_base["Nivel"] == 4) &
+                    total_filhos = df_base[
+                        (df_base["Nivel"] == n) &
                         (df_base["Conta"].astype(str).str.startswith(pref))
                     ][m].sum()
-                    df_base.at[idx, m] = total
 
+                    if total_filhos != 0:
+                        df_base.at[idx, m] = total_filhos
+
+            # 3) Nível 1 soma os níveis 2
             for idx, _ in df_base[df_base["Nivel"] == 1].iterrows():
                 df_base.at[idx, m] = df_base[df_base["Nivel"] == 2][m].sum()
 
@@ -370,7 +387,6 @@ def processar_bi(ano, meses, filtros_cc):
     df_base["MÉDIA"] = df_base[meses].mean(axis=1)
 
     return df_base, meses
-
 
 def gerar_dados_pizza(df, nivel, limite=10):
     dados = df[(df["Nivel"] == nivel) & (df["ACUMULADO"] < 0)].copy()
