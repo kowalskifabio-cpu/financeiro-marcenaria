@@ -337,7 +337,7 @@ def processar_bi(ano, meses, filtros_cc):
 
     for m in meses:
         try:
-            df_m = pd.DataFrame(spreadsheet.worksheet(f"{m}_{ano}").get_all_records())
+            df_m = carregar_aba_mensal(f"{m}_{ano}")
 
             if df_m.empty:
                 df_base[m] = 0.0
