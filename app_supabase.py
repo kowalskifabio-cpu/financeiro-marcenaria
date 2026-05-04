@@ -284,24 +284,24 @@ niveis_sel = st.sidebar.multiselect("Níveis", [1, 2, 3, 4], default=[1, 2, 3, 4
 
 @st.cache_data(ttl=600)
 def carregar_aba_base():
-    ultimo_erro = None
+    try:
+        resposta = supabase_client.table("plano_contas").select("*").execute()
+        df = pd.DataFrame(resposta.data)
 
-    for tentativa in range(3):
-        try:
-            ws = spreadsheet.worksheet("Base")
-            df = pd.DataFrame(ws.get_all_records())
-            return df
-        except Exception as e:
-            ultimo_erro = e
-            if "429" in str(e) or "quota" in str(e).lower():
-                time.sleep(3)
-                continue
-            break
+        if df.empty:
+            return pd.DataFrame()
 
-    if ultimo_erro:
-        mostrar_erro("Erro ao ler aba 'Base'", ultimo_erro)
+        df = df.rename(columns={
+            "conta_id": "Conta",
+            "descricao": "Descrição",
+            "nivel": "Nivel"
+        })
 
-    return pd.DataFrame()
+        return df[["Conta", "Descrição", "Nivel"]]
+
+    except Exception as e:
+        mostrar_erro("Erro ao ler plano_contas no Supabase", e)
+        return pd.DataFrame()
 
 
 def processar_bi(ano, meses, filtros_cc):
