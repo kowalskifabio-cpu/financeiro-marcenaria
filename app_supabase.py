@@ -407,7 +407,8 @@ def carregar_aba_mensal(nome_aba):
 
     for tentativa in range(3):
         try:
-            df = pd.DataFrame(spreadsheet.worksheet(nome_aba).get_all_records())
+            df = supabase_client.table("movimentos_financeiros").select("*").execute().data
+            df = pd.DataFrame(df)
 
             if df.empty:
                 return pd.DataFrame()
