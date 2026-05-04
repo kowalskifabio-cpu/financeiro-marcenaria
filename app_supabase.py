@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from supabase import create_client
 
+st.write("DEBUG SECRETS:", dict(st.secrets))
 # =========================
 # CONFIGURAÇÃO GERAL
 # =========================
