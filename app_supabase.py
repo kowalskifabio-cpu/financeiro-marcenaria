@@ -41,6 +41,13 @@ def normalizar_private_key(private_key):
 
     return key
 
+@st.cache_resource
+def get_supabase_client():
+    url = st.secrets["supabase"]["url"]
+    key = st.secrets["supabase"]["key"]
+    return create_client(url, key)
+
+supabase_client = get_supabase_client()
 
 @st.cache_resource
 def get_gspread_client():
