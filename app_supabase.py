@@ -10,6 +10,7 @@ import io
 import time
 from datetime import datetime
 import calendar
+from supabase import create_client, Client
 
 def mostrar_erro(contexto, erro):
     st.error(f"❌ {contexto}: {type(erro).__name__} - {erro}")
