@@ -289,27 +289,33 @@ def carregar_aba_base():
         df = pd.DataFrame(resposta.data)
 
         if df.empty:
+            st.warning("⚠️ Tabela plano_contas está vazia.")
             return pd.DataFrame()
 
+        # DEBUG TEMPORÁRIO
+        st.write("DEBUG COLUNAS:", df.columns.tolist())
+
+        # NORMALIZA NOMES
+        df.columns = [c.lower().strip() for c in df.columns]
+
+        # RENOMEIA SEM ACENTO
         df = df.rename(columns={
             "conta_id": "Conta",
-            "descricao": "Descrição",
+            "descricao": "Descricao",
             "nivel": "Nivel"
         })
 
-        return df[["Conta", "Descrição", "Nivel"]]
+        # VALIDAÇÃO FORTE
+        if not all(col in df.columns for col in ["Conta", "Descricao", "Nivel"]):
+            st.error(f"❌ Colunas esperadas não encontradas: {df.columns.tolist()}")
+            return pd.DataFrame()
+
+        return df[["Conta", "Descricao", "Nivel"]]
 
     except Exception as e:
         mostrar_erro("Erro ao ler plano_contas no Supabase", e)
         return pd.DataFrame()
-
-
-def processar_bi(ano, meses, filtros_cc):
-    if not meses:
-        return None, []
-
-    df_base = carregar_aba_base()
-
+        
     if df_base is None or df_base.empty:
         st.warning("Plano de contas não encontrado no Supabase.")
         st.stop()
