@@ -49,24 +49,24 @@ def get_supabase_client():
 
 supabase_client = get_supabase_client()
 
-@st.cache_resource
-def get_gspread_client():
-    try:
-        if "gcp_service_account" not in st.secrets:
-            st.error("❌ Chave 'gcp_service_account' não encontrada nos Secrets.")
-            return None
+# @st.cache_resource
+# def get_gspread_client():
+#     try:
+#         if "gcp_service_account" not in st.secrets:
+#             st.error("❌ Chave 'gcp_service_account' não encontrada nos Secrets.")
+#             return None
 
-        info = dict(st.secrets["gcp_service_account"])
-        info["private_key"] = normalizar_private_key(info["private_key"])
+#         info = dict(st.secrets["gcp_service_account"])
+#         info["private_key"] = normalizar_private_key(info["private_key"])
 
-        creds = Credentials.from_service_account_info(info, scopes=scope)
-        return gspread.authorize(creds)
+#         creds = Credentials.from_service_account_info(info, scopes=scope)
+#         return gspread.authorize(creds)
 
-    except Exception as e:
-        mostrar_erro("Erro ao autorizar Google", e)
-        return None
+#     except Exception as e:
+#         mostrar_erro("Erro ao autorizar Google", e)
+#         return None
         
-client = get_gspread_client()
+# client = get_gspread_client()
 
 @st.cache_resource(ttl=3600)
 def abrir_planilha(key):
@@ -80,8 +80,8 @@ def abrir_planilha(key):
                 continue
     return None
 
-spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
-if not spreadsheet: st.stop()
+# spreadsheet = abrir_planilha("1qNqW6ybPR1Ge9TqJvB7hYJVLst8RDYce40ZEsMPoe4Q")
+# if not spreadsheet: st.stop()
     
 # --- FUNÇÃO DE LIMPEZA DE CONTA (PRESERVAÇÃO DO .10) ---
 def limpar_conta_blindado(valor, nivel):
