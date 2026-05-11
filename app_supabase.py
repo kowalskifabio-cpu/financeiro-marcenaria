@@ -343,7 +343,53 @@ def obter_centros_custo(df_mov):
     if df_mov.empty or "Centro de Custo" not in df_mov.columns:
         return []
     return sorted([c for c in df_mov["Centro de Custo"].dropna().astype(str).unique().tolist() if c.strip()])
+    
+def cadastrar_centros_custo_automaticamente(df_mov_supabase):
+    df_rateio = carregar_logica_rateio()
 
+    centros_existentes = set()
+
+    if not df_rateio.empty:
+        centros_existentes = set(
+            df_rateio["Centro de Custo"]
+            .astype(str)
+            .str.strip()
+        )
+
+    centros_importados = sorted(
+        set(
+            df_mov_supabase["centro_custo"]
+            .astype(str)
+            .str.strip()
+        ) - centros_existentes
+    )
+
+    centros_importados = [
+        c for c in centros_importados
+        if c and c.lower() != "nan"
+    ]
+
+    if not centros_importados:
+        return []
+
+    novos_registros = [
+        {
+            "centro_custo": centro,
+            "logica": "obra"
+        }
+        for centro in centros_importados
+    ]
+
+    tamanho_lote = 500
+
+    for i in range(0, len(novos_registros), tamanho_lote):
+        supabase_client.table("rateio_config").insert(
+            novos_registros[i:i + tamanho_lote]
+        ).execute()
+
+    st.cache_data.clear()
+
+    return centros_importados
 # =========================
 # PROCESSAMENTO PRINCIPAL
 # =========================
