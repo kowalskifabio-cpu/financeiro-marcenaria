@@ -998,93 +998,95 @@ with aba9:
         meses_comp_sel = st.multiselect("Meses da Obra", MESES_LISTA, default=MESES_LISTA, key="meses_comp_obra_v17")
 
     obras_sel = [c for c in cc_sel if c != "Todos"]
+
     if not obras_sel:
         st.info("Selecione ao menos uma obra no filtro lateral de Centro de Custo.")
+    
     else:
         st.write(f"📍 Obras selecionadas no filtro lateral: **{len(obras_sel)}**")
     
         if st.button("📊 Processar Composição da Obra", key="btn_comp_obra_v17"):
-        df_rateio = carregar_logica_rateio()
-        if df_rateio.empty:
-            st.info("ℹ️ Não foi possível ler rateio_config.")
-            st.stop()
-
-        df_all = obter_movimentos_por_anos_meses(anos_comp_sel, meses_comp_sel)
-        if df_all.empty:
-            st.warning("Nenhum dado encontrado para o período selecionado.")
-            st.stop()
-
-        df_sel = df_all[
-            (df_all["Centro de Custo"].isin(obras_sel)) &
-            (df_all["Conta_ID"].astype(str).str.startswith("01") | df_all["Conta_ID"].astype(str).str.startswith("02"))
-        ].copy()
-
-        if df_sel.empty:
-            st.warning("As obras selecionadas não possuem lançamentos no período informado.")
-            st.stop()
-
-        direto = df_sel.groupby("Conta_ID")["Valor_Final"].sum()
-        direto_desp = direto[direto.index.astype(str).str.startswith("02")].copy()
-
-        mapa_logica = dict(zip(df_rateio["Centro de Custo"], df_rateio["Logica"]))
-        res_cc_full = df_all.groupby("Centro de Custo").apply(
-            lambda x: pd.Series({
-                "Receitas": x[x["Conta_ID"].astype(str).str.startswith("01")]["Valor_Final"].sum(),
-                "Despesa Direta": x[x["Conta_ID"].astype(str).str.startswith("02")]["Valor_Final"].sum(),
-            })
-        ).reset_index()
-
-        res_cc_full["Logica"] = res_cc_full["Centro de Custo"].astype(str).str.strip().map(mapa_logica).fillna("obra")
-        bolo_rateio = res_cc_full.loc[res_cc_full["Logica"] == "rateio", "Despesa Direta"].sum()
-        idx_obras = (res_cc_full["Logica"] == "obra") & (res_cc_full["Despesa Direta"] != 0)
-        total_desp_receptores = res_cc_full.loc[idx_obras, "Despesa Direta"].sum()
-
-        rateio_recebido_conjunto = 0.0
-        if abs(total_desp_receptores) > 0:
-            desp_direta_conjunto = res_cc_full[res_cc_full["Centro de Custo"].isin(obras_sel)]["Despesa Direta"].sum()
-            rateio_recebido_conjunto = (desp_direta_conjunto / total_desp_receptores) * bolo_rateio
-
-        rateado = pd.Series(0.0, index=direto.index)
-        total_desp_direta = direto_desp.sum()
-        if abs(total_desp_direta) > 0 and not direto_desp.empty:
-            proporcao_desp = direto_desp / total_desp_direta
-            rateado_desp = proporcao_desp * rateio_recebido_conjunto
-            rateado.loc[rateado_desp.index] = rateado_desp
-
-        final = direto + rateado
-
-        df_base_comp = carregar_aba_base().copy()
-        mapa_desc = dict(zip(df_base_comp["Conta"], df_base_comp["Descrição"])) if not df_base_comp.empty else {}
-
-        df_final = pd.DataFrame({
-            "Categoria": direto.index,
-            "Descrição": [mapa_desc.get(conta, conta) for conta in direto.index],
-            "Direto": direto.values,
-            "Rateado": rateado.values,
-            "Final": final.values
-        }).sort_values(by="Categoria")
-
-        total_row = pd.DataFrame([{
-            "Categoria": "TOTAL",
-            "Descrição": "",
-            "Direto": df_final["Direto"].sum(),
-            "Rateado": df_final["Rateado"].sum(),
-            "Final": df_final["Final"].sum()
-        }])
-
-        df_final = pd.concat([df_final, total_row], ignore_index=True)
-
-        st.dataframe(df_final.style.format({
-            "Direto": formatar_moeda_br,
-            "Rateado": formatar_moeda_br,
-            "Final": formatar_moeda_br
-        }), use_container_width=True, height=700)
-
-        buffer_comp = io.BytesIO()
-        with pd.ExcelWriter(buffer_comp, engine="openpyxl") as writer:
-            df_final.to_excel(writer, index=False, sheet_name="Composicao_Obra")
-
-        st.download_button("📥 Exportar Composição da Obra (Excel)", data=buffer_comp.getvalue(), file_name="Composicao_Obra_Consolidada.xlsx")
+            df_rateio = carregar_logica_rateio()
+            if df_rateio.empty:
+                st.info("ℹ️ Não foi possível ler rateio_config.")
+                st.stop()
+    
+            df_all = obter_movimentos_por_anos_meses(anos_comp_sel, meses_comp_sel)
+            if df_all.empty:
+                st.warning("Nenhum dado encontrado para o período selecionado.")
+                st.stop()
+    
+            df_sel = df_all[
+                (df_all["Centro de Custo"].isin(obras_sel)) &
+                (df_all["Conta_ID"].astype(str).str.startswith("01") | df_all["Conta_ID"].astype(str).str.startswith("02"))
+            ].copy()
+    
+            if df_sel.empty:
+                st.warning("As obras selecionadas não possuem lançamentos no período informado.")
+                st.stop()
+    
+            direto = df_sel.groupby("Conta_ID")["Valor_Final"].sum()
+            direto_desp = direto[direto.index.astype(str).str.startswith("02")].copy()
+    
+            mapa_logica = dict(zip(df_rateio["Centro de Custo"], df_rateio["Logica"]))
+            res_cc_full = df_all.groupby("Centro de Custo").apply(
+                lambda x: pd.Series({
+                    "Receitas": x[x["Conta_ID"].astype(str).str.startswith("01")]["Valor_Final"].sum(),
+                    "Despesa Direta": x[x["Conta_ID"].astype(str).str.startswith("02")]["Valor_Final"].sum(),
+                })
+            ).reset_index()
+    
+            res_cc_full["Logica"] = res_cc_full["Centro de Custo"].astype(str).str.strip().map(mapa_logica).fillna("obra")
+            bolo_rateio = res_cc_full.loc[res_cc_full["Logica"] == "rateio", "Despesa Direta"].sum()
+            idx_obras = (res_cc_full["Logica"] == "obra") & (res_cc_full["Despesa Direta"] != 0)
+            total_desp_receptores = res_cc_full.loc[idx_obras, "Despesa Direta"].sum()
+    
+            rateio_recebido_conjunto = 0.0
+            if abs(total_desp_receptores) > 0:
+                desp_direta_conjunto = res_cc_full[res_cc_full["Centro de Custo"].isin(obras_sel)]["Despesa Direta"].sum()
+                rateio_recebido_conjunto = (desp_direta_conjunto / total_desp_receptores) * bolo_rateio
+    
+            rateado = pd.Series(0.0, index=direto.index)
+            total_desp_direta = direto_desp.sum()
+            if abs(total_desp_direta) > 0 and not direto_desp.empty:
+                proporcao_desp = direto_desp / total_desp_direta
+                rateado_desp = proporcao_desp * rateio_recebido_conjunto
+                rateado.loc[rateado_desp.index] = rateado_desp
+    
+            final = direto + rateado
+    
+            df_base_comp = carregar_aba_base().copy()
+            mapa_desc = dict(zip(df_base_comp["Conta"], df_base_comp["Descrição"])) if not df_base_comp.empty else {}
+    
+            df_final = pd.DataFrame({
+                "Categoria": direto.index,
+                "Descrição": [mapa_desc.get(conta, conta) for conta in direto.index],
+                "Direto": direto.values,
+                "Rateado": rateado.values,
+                "Final": final.values
+            }).sort_values(by="Categoria")
+    
+            total_row = pd.DataFrame([{
+                "Categoria": "TOTAL",
+                "Descrição": "",
+                "Direto": df_final["Direto"].sum(),
+                "Rateado": df_final["Rateado"].sum(),
+                "Final": df_final["Final"].sum()
+            }])
+    
+            df_final = pd.concat([df_final, total_row], ignore_index=True)
+    
+            st.dataframe(df_final.style.format({
+                "Direto": formatar_moeda_br,
+                "Rateado": formatar_moeda_br,
+                "Final": formatar_moeda_br
+            }), use_container_width=True, height=700)
+    
+            buffer_comp = io.BytesIO()
+            with pd.ExcelWriter(buffer_comp, engine="openpyxl") as writer:
+                df_final.to_excel(writer, index=False, sheet_name="Composicao_Obra")
+    
+            st.download_button("📥 Exportar Composição da Obra (Excel)", data=buffer_comp.getvalue(), file_name="Composicao_Obra_Consolidada.xlsx")
 
 with aba10:
     st.subheader("⚙️ Configurações")
