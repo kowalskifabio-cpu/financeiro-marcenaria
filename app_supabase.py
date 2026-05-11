@@ -224,6 +224,12 @@ def carregar_aba_base():
         df = df.dropna(subset=["Conta", "Nivel"]).copy()
         df["Nivel"] = df["Nivel"].astype(int)
         df["Conta"] = df.apply(lambda x: limpar_conta_blindado(x["Conta"], x["Nivel"]), axis=1).astype(str).str.strip()
+def chave_ordem_conta(conta):
+            partes = str(conta).split(".")
+            return tuple(int(p) if p.isdigit() else 0 for p in partes)
+        
+        df["ordem_conta"] = df["Conta"].apply(chave_ordem_conta)
+        df = df.sort_values(by="ordem_conta").drop(columns=["ordem_conta"]).reset_index(drop=True)
         df["Descrição"] = df["Descrição"].astype(str).str.strip()
 
         return df
