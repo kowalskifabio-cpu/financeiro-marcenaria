@@ -587,7 +587,16 @@ with aba1:
             df_mov_import = preparar_movimentos_para_supabase(df_carga, a_ref, m_ref)
 
             contas_faltantes, centros_faltantes = validar_importacao(df_mov_import)
+            centros_criados = cadastrar_centros_custo_automaticamente(df_mov_import)
 
+            if centros_criados:
+                st.info(
+                    f"ℹ️ {len(centros_criados)} centros cadastrados automaticamente como OBRA."
+                )
+            
+            # recarrega após inserir
+            contas_faltantes, centros_faltantes = validar_importacao(df_mov_import)
+            
             if contas_faltantes:
                 st.warning(f"⚠️ Contas não encontradas no plano de contas: {len(contas_faltantes)}")
                 st.dataframe(pd.DataFrame({"conta_id": contas_faltantes}), use_container_width=True)
