@@ -1000,11 +1000,10 @@ with aba9:
     obras_sel = [c for c in cc_sel if c != "Todos"]
     if not obras_sel:
         st.info("Selecione ao menos uma obra no filtro lateral de Centro de Custo.")
-        st.stop()
-
-    st.write(f"📍 Obras selecionadas no filtro lateral: **{len(obras_sel)}**")
-
-    if st.button("📊 Processar Composição da Obra", key="btn_comp_obra_v17"):
+    else:
+        st.write(f"📍 Obras selecionadas no filtro lateral: **{len(obras_sel)}**")
+    
+        if st.button("📊 Processar Composição da Obra", key="btn_comp_obra_v17"):
         df_rateio = carregar_logica_rateio()
         if df_rateio.empty:
             st.info("ℹ️ Não foi possível ler rateio_config.")
