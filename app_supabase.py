@@ -548,9 +548,10 @@ def inserir_movimentos_com_sobrescrita(df_mov_supabase, ano, mes_num):
 # =========================
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
-aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8, aba9 = st.tabs([
+aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8, aba9, aba10 = st.tabs([
     "📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo",
-    "⚠️ Alertas", "📉 Curva ABC", "🤖 Analista IA", "🧾 Composição da Obra"
+    "⚠️ Alertas", "📉 Curva ABC", "🤖 Analista IA", "🧾 Composição da Obra",
+    "⚙️ Configurações"
 ])
 
 # Sidebar baseada no Supabase
