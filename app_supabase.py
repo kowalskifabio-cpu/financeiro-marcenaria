@@ -1086,3 +1086,107 @@ with aba9:
             df_final.to_excel(writer, index=False, sheet_name="Composicao_Obra")
 
         st.download_button("📥 Exportar Composição da Obra (Excel)", data=buffer_comp.getvalue(), file_name="Composicao_Obra_Consolidada.xlsx")
+
+with aba10:
+    st.subheader("⚙️ Configurações")
+
+    tab_pc, tab_rateio = st.tabs([
+        "📚 Plano de Contas",
+        "🏢 Centros de Custo / Rateio"
+    ])
+
+    with tab_pc:
+        st.write("### 📚 Plano de Contas")
+
+        df_pc_raw = pd.DataFrame(supabase_fetch_all("plano_contas"))
+
+        if df_pc_raw.empty:
+            st.warning("Plano de contas vazio.")
+        else:
+            df_pc_raw = df_pc_raw.sort_values(by="conta_id").reset_index(drop=True)
+
+            df_pc_editado = st.data_editor(
+                df_pc_raw,
+                use_container_width=True,
+                height=600,
+                num_rows="dynamic",
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True),
+                    "conta_id": st.column_config.TextColumn("Conta"),
+                    "descricao": st.column_config.TextColumn("Descrição"),
+                    "nivel": st.column_config.NumberColumn("Nível", min_value=1, max_value=5, step=1)
+                }
+            )
+
+            if st.button("💾 Salvar Plano de Contas"):
+                for _, row in df_pc_editado.iterrows():
+                    conta = str(row.get("conta_id", "")).strip()
+                    descricao = str(row.get("descricao", "")).strip().upper()
+                    nivel = row.get("nivel", None)
+
+                    if not conta or not descricao or pd.isna(nivel):
+                        continue
+
+                    if pd.isna(row.get("id")):
+                        supabase_client.table("plano_contas").insert({
+                            "conta_id": conta,
+                            "descricao": descricao,
+                            "nivel": int(nivel)
+                        }).execute()
+                    else:
+                        supabase_client.table("plano_contas").update({
+                            "conta_id": conta,
+                            "descricao": descricao,
+                            "nivel": int(nivel)
+                        }).eq("id", int(row["id"])).execute()
+
+                st.cache_data.clear()
+                st.success("Plano de contas salvo com sucesso.")
+
+    with tab_rateio:
+        st.write("### 🏢 Centros de Custo / Rateio")
+
+        df_rateio_raw = pd.DataFrame(supabase_fetch_all("rateio_config"))
+
+        if df_rateio_raw.empty:
+            st.warning("Nenhum centro de custo cadastrado.")
+        else:
+            df_rateio_raw = df_rateio_raw.sort_values(by="centro_custo").reset_index(drop=True)
+
+            df_rateio_editado = st.data_editor(
+                df_rateio_raw,
+                use_container_width=True,
+                height=650,
+                num_rows="dynamic",
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True),
+                    "centro_custo": st.column_config.TextColumn("Centro de Custo"),
+                    "logica": st.column_config.SelectboxColumn(
+                        "Lógica",
+                        options=["obra", "rateio", "fora"],
+                        required=True
+                    )
+                }
+            )
+
+            if st.button("💾 Salvar Centros de Custo / Rateio"):
+                for _, row in df_rateio_editado.iterrows():
+                    centro = str(row.get("centro_custo", "")).strip()
+                    logica = str(row.get("logica", "")).strip().lower()
+
+                    if not centro or logica not in ["obra", "rateio", "fora"]:
+                        continue
+
+                    if pd.isna(row.get("id")):
+                        supabase_client.table("rateio_config").insert({
+                            "centro_custo": centro,
+                            "logica": logica
+                        }).execute()
+                    else:
+                        supabase_client.table("rateio_config").update({
+                            "centro_custo": centro,
+                            "logica": logica
+                        }).eq("id", int(row["id"])).execute()
+
+                st.cache_data.clear()
+                st.success("Centros de custo atualizados com sucesso.")
