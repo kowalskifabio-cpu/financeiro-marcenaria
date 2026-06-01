@@ -231,7 +231,13 @@ def carregar_aba_base():
         
         df["ordem_conta"] = df["Conta"].apply(chave_ordem_conta)
         df = df.sort_values(by="ordem_conta").drop(columns=["ordem_conta"]).reset_index(drop=True)
-        df["Descrição"] = df["Descrição"].astype(str).str.strip()
+        df["Classificacao"] = (
+            df["Classificacao"]
+            .fillna("operacional")
+            .astype(str)
+            .str.lower()
+            .str.strip()
+        )
 
         return df
 
