@@ -214,7 +214,7 @@ def carregar_aba_base():
             "classificacao": "Classificacao"
         })
 
-        colunas = ["Conta", "Descrição", "Nivel"]
+        colunas = ["Conta", "Descrição", "Nivel", "Classificacao"]
         faltantes = [c for c in colunas if c not in df.columns]
         if faltantes:
             st.error(f"❌ plano_contas sem colunas esperadas: {faltantes}")
