@@ -210,7 +210,8 @@ def carregar_aba_base():
         df = df.rename(columns={
             "conta_id": "Conta",
             "descricao": "Descrição",
-            "nivel": "Nivel"
+            "nivel": "Nivel",
+            "classificacao": "Classificacao"
         })
 
         colunas = ["Conta", "Descrição", "Nivel"]
