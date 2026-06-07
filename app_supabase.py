@@ -1199,4 +1199,49 @@ with aba10:
 
                 st.cache_data.clear()
                 st.success("Centros de custo atualizados com sucesso.")
+with aba11:
+    st.subheader("📊 Resultado Operacional / Não Operacional")
+
+    filtro_classificacao = st.radio(
+        "Escolha a visão",
+        ["operacional", "nao_operacional", "todos"],
+        horizontal=True
+    )
+
+    ocultar_vazios_aba11 = st.checkbox(
+        "🚫 Ocultar Contas sem Movimento",
+        value=False,
+        key="ocultar_aba11"
+    )
+
+    if st.button("📊 Gerar Relatório", key="btn_aba11_resultado_operacional"):
+        df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
+
+        if df_res is None:
+            st.error("❌ Não foi possível gerar o relatório.")
+        else:
+            if filtro_classificacao != "todos":
+                df_res = df_res[
+                    (df_res["Classificacao"] == filtro_classificacao) |
+                    (df_res["Classificacao"] == "resultado")
+                ].copy()
+
+            if ocultar_vazios_aba11:
+                df_res = filtrar_linhas_zeradas(df_res, meses_exibir + ["ACUMULADO"])
+
+            df_visual = df_res[df_res["Nivel"].isin(niveis_sel)].copy()
+
+            cols_export = [
+                "Nivel", "Conta", "Descrição", "Classificacao"
+            ] + meses_exibir + ["MÉDIA", "ACUMULADO"]
+
+            st.dataframe(
+                df_visual[cols_export].style.format({
+                    c: formatar_moeda_br
+                    for c in cols_export
+                    if c not in ["Nivel", "Conta", "Descrição", "Classificacao"]
+                }),
+                use_container_width=True,
+                height=800
+            )
                 
