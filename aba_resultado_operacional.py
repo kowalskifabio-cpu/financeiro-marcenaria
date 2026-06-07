@@ -102,10 +102,14 @@ def render_aba_resultado_operacional(
                     (df_base["Nivel"] == n) &
                     (df_base["Conta"].astype(str).str.startswith(pref))
                 ]
-
-                if not filhos.empty:
-                    df_base.at[idx, mes] = filhos[mes].sum()
-
+                
+                total_filhos = filhos[mes].sum()
+                
+                # Só substitui a conta pai se os filhos tiverem movimento.
+                # Se os filhos existem mas estão zerados, preserva lançamento direto da conta pai.
+                if total_filhos != 0:
+                    df_base.at[idx, mes] = total_filhos
+                    
         for idx, _ in df_base[df_base["Nivel"] == 1].iterrows():
             df_base.at[idx, mes] = df_base[df_base["Nivel"] == 2][mes].sum()
 
