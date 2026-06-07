@@ -8,9 +8,7 @@ def render_aba_resultado_operacional(
     meses_sel,
     cc_sel,
     niveis_sel,
-    MAPA_MESES,
-    carregar_aba_base,
-    carregar_movimentos_periodo,
+    processar_bi,
     filtrar_linhas_zeradas,
     formatar_moeda_br
 ):
@@ -31,94 +29,74 @@ def render_aba_resultado_operacional(
     if not st.button("📊 Gerar Relatório", key="btn_resultado_operacional_novo"):
         return
 
-    df_base = carregar_aba_base().copy()
+    df_res, meses_exibir = processar_bi(ano_sel, meses_sel, cc_sel)
 
-    if df_base.empty:
-        st.error("Plano de contas não encontrado.")
+    if df_res is None or df_res.empty:
+        st.error("❌ Não foi possível gerar o relatório.")
         return
 
-    meses_numeros = [MAPA_MESES[m] for m in meses_sel if m in MAPA_MESES]
-    df_mov = carregar_movimentos_periodo(ano_sel, meses_numeros)
-
-    if df_mov.empty:
-        st.warning("Sem movimentos para o período selecionado.")
-        return
-
-    df_base["Classificacao"] = (
-        df_base["Classificacao"]
+    df_res["Classificacao"] = (
+        df_res["Classificacao"]
         .fillna("operacional")
         .astype(str)
         .str.lower()
         .str.strip()
     )
 
-    df_mov["Mes"] = pd.to_numeric(df_mov["Mes"], errors="coerce").astype("Int64")
-    df_mov["Conta_ID"] = df_mov["Conta_ID"].astype(str).str.strip()
-    df_mov["Valor_Final"] = pd.to_numeric(df_mov["Valor_Final"], errors="coerce").fillna(0.0)
-
-    if "Todos" not in cc_sel and cc_sel:
-        df_mov = df_mov[df_mov["Centro de Custo"].isin(cc_sel)].copy()
+    colunas_valores = meses_exibir + ["MÉDIA", "ACUMULADO"]
 
     if filtro_classificacao != "todos":
-        contas_permitidas = set(
-            df_base.loc[
-                (df_base["Classificacao"] == filtro_classificacao) &
-                (df_base["Nivel"] == 4),
-                "Conta"
-            ].astype(str).str.strip()
+        df_res = df_res.copy()
+
+        contas = df_res["Conta"].astype(str).str.strip().tolist()
+
+        def tem_filho(conta):
+            prefixo = str(conta).strip() + "."
+            return any(str(c).startswith(prefixo) for c in contas)
+
+        df_res["Eh_Folha"] = df_res["Conta"].apply(lambda c: not tem_filho(c))
+
+        mask_folha_permitida = (
+            (df_res["Eh_Folha"]) &
+            (df_res["Classificacao"] == filtro_classificacao)
         )
 
-        df_mov = df_mov[df_mov["Conta_ID"].isin(contas_permitidas)].copy()
+        for col in colunas_valores:
+            if col in df_res.columns:
+                df_res.loc[~mask_folha_permitida, col] = 0.0
 
-    for mes in meses_sel:
-        df_base[mes] = 0.0
+        for col in meses_exibir:
+            niveis = sorted(df_res["Nivel"].dropna().unique(), reverse=True)
 
-    for mes in meses_sel:
-        mes_num = int(MAPA_MESES[mes])
-        df_m = df_mov[df_mov["Mes"] == mes_num].copy()
+            for n in niveis:
+                if n <= 1:
+                    continue
 
-        if df_m.empty:
-            continue
+                nivel_pai = n - 1
 
-        mapa_valores = df_m.groupby("Conta_ID")["Valor_Final"].sum().to_dict()
+                for idx, row in df_res[df_res["Nivel"] == nivel_pai].iterrows():
+                    pref = str(row["Conta"]).strip() + "."
+                    total_filhos = df_res[
+                        (df_res["Nivel"] == n) &
+                        (df_res["Conta"].astype(str).str.startswith(pref))
+                    ][col].sum()
 
-        df_base[mes] = (
-            df_base["Conta"]
-            .astype(str)
-            .str.strip()
-            .map(mapa_valores)
-            .fillna(0.0)
-        )
+                    df_res.at[idx, col] = total_filhos
 
-        niveis = sorted(df_base["Nivel"].dropna().unique(), reverse=True)
+            for idx, _ in df_res[df_res["Nivel"] == 1].iterrows():
+                df_res.at[idx, col] = df_res[df_res["Nivel"] == 2][col].sum()
 
-        for n in niveis:
-            if n <= 1:
-                continue
+        df_res["ACUMULADO"] = df_res[meses_exibir].sum(axis=1)
+        df_res["MÉDIA"] = df_res[meses_exibir].mean(axis=1)
 
-            nivel_pai = n - 1
-
-            for idx, row in df_base[df_base["Nivel"] == nivel_pai].iterrows():
-                pref = str(row["Conta"]).strip() + "."
-                total_filhos = df_base[
-                    (df_base["Nivel"] == n) &
-                    (df_base["Conta"].astype(str).str.startswith(pref))
-                ][mes].sum()
-
-                df_base.at[idx, mes] = total_filhos
-
-        for idx, _ in df_base[df_base["Nivel"] == 1].iterrows():
-            df_base.at[idx, mes] = df_base[df_base["Nivel"] == 2][mes].sum()
-
-    df_base["ACUMULADO"] = df_base[meses_sel].sum(axis=1)
-    df_base["MÉDIA"] = df_base[meses_sel].mean(axis=1)
+        df_res = df_res.drop(columns=["Eh_Folha"], errors="ignore")
 
     if ocultar_vazios:
-        df_base = filtrar_linhas_zeradas(df_base, meses_sel + ["ACUMULADO"])
+        df_res = filtrar_linhas_zeradas(df_res, meses_exibir + ["ACUMULADO"])
 
-    df_visual = df_base[df_base["Nivel"].isin(niveis_sel)].copy()
+    df_visual = df_res[df_res["Nivel"].isin(niveis_sel)].copy()
 
-    cols_export = ["Nivel", "Conta", "Descrição", "Classificacao"] + meses_sel + ["MÉDIA", "ACUMULADO"]
+    cols_export = ["Nivel", "Conta", "Descrição", "Classificacao"] + meses_exibir + ["MÉDIA", "ACUMULADO"]
 
     def style_rows(row):
         if row["Nivel"] == 1:
