@@ -1221,16 +1221,33 @@ with aba11:
         if df_res is None:
             st.error("❌ Não foi possível gerar o relatório.")
         else:
+            df_res["Classificacao"] = (
+                df_res["Classificacao"]
+                .fillna("operacional")
+                .astype(str)
+                .str.lower()
+                .str.strip()
+            )
+
             colunas_valores = meses_exibir + ["MÉDIA", "ACUMULADO"]
 
             if filtro_classificacao != "todos":
-                mask_manter = df_res["Classificacao"] == filtro_classificacao
+                contas_permitidas = set(
+                    df_res.loc[
+                        df_res["Classificacao"] == filtro_classificacao,
+                        "Conta"
+                    ].astype(str).str.strip()
+                )
 
                 for col in colunas_valores:
                     if col in df_res.columns:
-                        df_res.loc[~mask_manter, col] = 0.0
+                        df_res[col] = df_res.apply(
+                            lambda row: row[col]
+                            if str(row["Conta"]).strip() in contas_permitidas
+                            else 0.0,
+                            axis=1
+                        )
 
-                # Recalcula níveis superiores depois do filtro
                 for col in meses_exibir:
                     for n in sorted(df_res["Nivel"].dropna().unique(), reverse=True):
                         if n <= 1:
