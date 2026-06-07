@@ -1200,5 +1200,18 @@ with aba10:
 
                 st.cache_data.clear()
                 st.success("Centros de custo atualizados com sucesso.")
+
+with aba11:
+    render_aba_resultado_operacional(
+        ano_sel=ano_sel,
+        meses_sel=meses_sel,
+        cc_sel=cc_sel,
+        niveis_sel=niveis_sel,
+        MAPA_MESES=MAPA_MESES,
+        carregar_aba_base=carregar_aba_base,
+        carregar_movimentos_periodo=carregar_movimentos_periodo,
+        filtrar_linhas_zeradas=filtrar_linhas_zeradas,
+        formatar_moeda_br=formatar_moeda_br
+    )
                 
 
