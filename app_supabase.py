@@ -10,6 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from supabase import create_client
+from aba_analista_ia import render_aba_analista_ia
 from aba_resultado_operacional import render_aba_resultado_operacional
 
 # =========================
@@ -994,8 +995,7 @@ with aba7:
                 st.info("Sem despesas para gerar Curva ABC.")
 
 with aba8:
-    st.subheader("🤖 Analista IA")
-    st.info("A análise por IA será religada depois da estabilização da base Supabase.")
+    render_aba_analista_ia(ano_sel, meses_sel, cc_sel, processar_bi)
 
 with aba9:
     st.subheader("🧾 Composição da Obra")
