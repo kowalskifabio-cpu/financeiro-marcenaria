@@ -35,6 +35,8 @@ def render_aba_resultado_operacional(
         st.error("❌ Não foi possível gerar o relatório.")
         return
 
+    df_res = df_res.copy()
+
     df_res["Classificacao"] = (
         df_res["Classificacao"]
         .fillna("operacional")
@@ -46,25 +48,18 @@ def render_aba_resultado_operacional(
     colunas_valores = meses_exibir + ["MÉDIA", "ACUMULADO"]
 
     if filtro_classificacao != "todos":
-        df_res = df_res.copy()
-
-        contas = df_res["Conta"].astype(str).str.strip().tolist()
-
-        def tem_filho(conta):
-            prefixo = str(conta).strip() + "."
-            return any(str(c).startswith(prefixo) for c in contas)
-
-        df_res["Eh_Folha"] = df_res["Conta"].apply(lambda c: not tem_filho(c))
-
-        mask_folha_permitida = (
-            (df_res["Eh_Folha"]) &
-            (df_res["Classificacao"] == filtro_classificacao)
+        # Zera somente as linhas que NÃO pertencem à classificação escolhida
+        # Mantém a linha de resultado para ser recalculada depois
+        mask_manter = (
+            (df_res["Classificacao"] == filtro_classificacao) |
+            (df_res["Classificacao"] == "resultado")
         )
 
         for col in colunas_valores:
             if col in df_res.columns:
-                df_res.loc[~mask_folha_permitida, col] = 0.0
+                df_res.loc[~mask_manter, col] = 0.0
 
+        # Recalcula a árvore de baixo para cima
         for col in meses_exibir:
             niveis = sorted(df_res["Nivel"].dropna().unique(), reverse=True)
 
@@ -81,15 +76,19 @@ def render_aba_resultado_operacional(
                         (df_res["Conta"].astype(str).str.startswith(pref))
                     ][col].sum()
 
-                    df_res.at[idx, col] = total_filhos
+                    filhos_existem = df_res[
+                        (df_res["Nivel"] == n) &
+                        (df_res["Conta"].astype(str).str.startswith(pref))
+                    ]
+
+                    if not filhos_existem.empty:
+                        df_res.at[idx, col] = total_filhos
 
             for idx, _ in df_res[df_res["Nivel"] == 1].iterrows():
                 df_res.at[idx, col] = df_res[df_res["Nivel"] == 2][col].sum()
 
         df_res["ACUMULADO"] = df_res[meses_exibir].sum(axis=1)
         df_res["MÉDIA"] = df_res[meses_exibir].mean(axis=1)
-
-        df_res = df_res.drop(columns=["Eh_Folha"], errors="ignore")
 
     if ocultar_vazios:
         df_res = filtrar_linhas_zeradas(df_res, meses_exibir + ["ACUMULADO"])
