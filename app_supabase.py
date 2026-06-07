@@ -1199,6 +1199,7 @@ with aba10:
 
                 st.cache_data.clear()
                 st.success("Centros de custo atualizados com sucesso.")
+                
 with aba11:
     st.subheader("📊 Resultado Operacional / Não Operacional")
 
@@ -1220,11 +1221,37 @@ with aba11:
         if df_res is None:
             st.error("❌ Não foi possível gerar o relatório.")
         else:
+            colunas_valores = meses_exibir + ["MÉDIA", "ACUMULADO"]
+
             if filtro_classificacao != "todos":
-                df_res = df_res[
-                    (df_res["Classificacao"] == filtro_classificacao) |
-                    (df_res["Classificacao"] == "resultado")
-                ].copy()
+                mask_manter = df_res["Classificacao"] == filtro_classificacao
+
+                for col in colunas_valores:
+                    if col in df_res.columns:
+                        df_res.loc[~mask_manter, col] = 0.0
+
+                # Recalcula níveis superiores depois do filtro
+                for col in meses_exibir:
+                    for n in sorted(df_res["Nivel"].dropna().unique(), reverse=True):
+                        if n <= 1:
+                            continue
+
+                        nivel_pai = n - 1
+
+                        for idx, row in df_res[df_res["Nivel"] == nivel_pai].iterrows():
+                            pref = str(row["Conta"]).strip() + "."
+                            total_filhos = df_res[
+                                (df_res["Nivel"] == n) &
+                                (df_res["Conta"].astype(str).str.startswith(pref))
+                            ][col].sum()
+
+                            df_res.at[idx, col] = total_filhos
+
+                    for idx, _ in df_res[df_res["Nivel"] == 1].iterrows():
+                        df_res.at[idx, col] = df_res[df_res["Nivel"] == 2][col].sum()
+
+                df_res["ACUMULADO"] = df_res[meses_exibir].sum(axis=1)
+                df_res["MÉDIA"] = df_res[meses_exibir].mean(axis=1)
 
             if ocultar_vazios_aba11:
                 df_res = filtrar_linhas_zeradas(df_res, meses_exibir + ["ACUMULADO"])
@@ -1235,8 +1262,20 @@ with aba11:
                 "Nivel", "Conta", "Descrição", "Classificacao"
             ] + meses_exibir + ["MÉDIA", "ACUMULADO"]
 
+            def style_rows_operacional(row):
+                if row["Nivel"] == 1:
+                    return ["background-color: #334155; color: white; font-weight: bold"] * len(row)
+                if row["Nivel"] == 2:
+                    return ["background-color: #cbd5e1; font-weight: bold; color: black"] * len(row)
+                if row["Nivel"] == 3:
+                    return ["background-color: #D1EAFF; font-weight: bold; color: black"] * len(row)
+                return [""] * len(row)
+
             st.dataframe(
-                df_visual[cols_export].style.format({
+                df_visual[cols_export]
+                .style
+                .apply(style_rows_operacional, axis=1)
+                .format({
                     c: formatar_moeda_br
                     for c in cols_export
                     if c not in ["Nivel", "Conta", "Descrição", "Classificacao"]
