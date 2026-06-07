@@ -52,39 +52,47 @@ def render_aba_resultado_operacional(
         .str.strip()
     )
 
-    contas_permitidas = set(df_base["Conta"].astype(str).str.strip())
+    df_mov["Mes"] = pd.to_numeric(df_mov["Mes"], errors="coerce").astype("Int64")
+    df_mov["Conta_ID"] = df_mov["Conta_ID"].astype(str).str.strip()
+    df_mov["Valor_Final"] = pd.to_numeric(df_mov["Valor_Final"], errors="coerce").fillna(0.0)
+
+    if "Todos" not in cc_sel and cc_sel:
+        df_mov = df_mov[df_mov["Centro de Custo"].isin(cc_sel)].copy()
 
     if filtro_classificacao != "todos":
         contas_permitidas = set(
             df_base.loc[
-                df_base["Classificacao"] == filtro_classificacao,
+                (df_base["Classificacao"] == filtro_classificacao) &
+                (df_base["Nivel"] == 4),
                 "Conta"
             ].astype(str).str.strip()
         )
 
-        df_mov = df_mov[
-            df_mov["Conta_ID"].astype(str).str.strip().isin(contas_permitidas)
-        ].copy()
-
-    if "Todos" not in cc_sel and cc_sel:
-        df_mov = df_mov[df_mov["Centro de Custo"].isin(cc_sel)].copy()
+        df_mov = df_mov[df_mov["Conta_ID"].isin(contas_permitidas)].copy()
 
     for mes in meses_sel:
         df_base[mes] = 0.0
 
     for mes in meses_sel:
-        mes_num = MAPA_MESES[mes]
+        mes_num = int(MAPA_MESES[mes])
         df_m = df_mov[df_mov["Mes"] == mes_num].copy()
 
         if df_m.empty:
             continue
 
-        df_m["Conta_ID"] = df_m["Conta_ID"].astype(str).str.strip()
         mapa_valores = df_m.groupby("Conta_ID")["Valor_Final"].sum().to_dict()
 
-        df_base[mes] = df_base["Conta"].astype(str).str.strip().map(mapa_valores).fillna(0.0)
+        df_base[mes] = (
+            df_base["Conta"]
+            .astype(str)
+            .str.strip()
+            .map(mapa_valores)
+            .fillna(0.0)
+        )
 
-        for n in sorted(df_base["Nivel"].dropna().unique(), reverse=True):
+        niveis = sorted(df_base["Nivel"].dropna().unique(), reverse=True)
+
+        for n in niveis:
             if n <= 1:
                 continue
 
