@@ -1207,9 +1207,7 @@ with aba11:
         meses_sel=meses_sel,
         cc_sel=cc_sel,
         niveis_sel=niveis_sel,
-        MAPA_MESES=MAPA_MESES,
-        carregar_aba_base=carregar_aba_base,
-        carregar_movimentos_periodo=carregar_movimentos_periodo,
+        processar_bi=processar_bi,
         filtrar_linhas_zeradas=filtrar_linhas_zeradas,
         formatar_moeda_br=formatar_moeda_br
     )
