@@ -9,7 +9,7 @@ import streamlit as st
 # CONFIGURAÇÃO DO GOOGLE GEMINI
 # ============================================================
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-pro"
 
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
