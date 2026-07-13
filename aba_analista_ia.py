@@ -446,7 +446,9 @@ def render_aba_analista_ia(
 
                 elif exc.code == 429:
                     st.error(
-                        f"HTTP 429 - {detalhe}"
+                        "O limite temporário da camada gratuita do "
+                        "Google Gemini foi atingido. Aguarde alguns "
+                        "minutos e tente novamente."
                     )
                 
                 elif exc.code == 400:
