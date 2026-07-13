@@ -438,37 +438,46 @@ def render_aba_analista_ia(
                     _montar_prompt(contexto)
                 )
 
-            except error.HTTPError as exc:
-                detalhe = exc.read().decode(
-                    "utf-8",
-                    errors="ignore"
-                )
-
-                elif exc.code == 429:
-                    st.error(
-                        "O limite temporário da camada gratuita do "
-                        "Google Gemini foi atingido. Aguarde alguns "
-                        "minutos e tente novamente."
-                    )
-                
-                elif exc.code == 400:
-                    st.error(
-                        "O Google Gemini recusou a solicitação. "
-                        f"Detalhes técnicos: {detalhe}"
-                    )
-                elif exc.code == 403:
-                    st.error(
-                        "A chave do Google Gemini não tem autorização "
-                        "para usar essa API. Verifique a chave no "
-                        "Google AI Studio."
-                    )
-                else:
-                    st.error(
-                        f"Erro ao chamar o Google Gemini: "
-                        f"HTTP {exc.code}. {detalhe}"
-                    )
-
-                return
+                        except error.HTTPError as exc:
+                            detalhe = exc.read().decode(
+                                "utf-8",
+                                errors="ignore"
+                            )
+            
+                            if exc.code == 429:
+                                st.error(
+                                    "O limite da API do Google Gemini foi atingido. "
+                                    f"Detalhes técnicos: {detalhe}"
+                                )
+            
+                            elif exc.code == 400:
+                                st.error(
+                                    "O Google Gemini recusou a solicitação. "
+                                    f"Detalhes técnicos: {detalhe}"
+                                )
+            
+                            elif exc.code == 403:
+                                st.error(
+                                    "A chave do Google Gemini não tem autorização "
+                                    "para usar essa API. Verifique a chave no "
+                                    "Google AI Studio. "
+                                    f"Detalhes técnicos: {detalhe}"
+                                )
+            
+                            elif exc.code == 404:
+                                st.error(
+                                    "O modelo configurado não está disponível. "
+                                    f"Modelo atual: {GEMINI_MODEL}. "
+                                    f"Detalhes técnicos: {detalhe}"
+                                )
+            
+                            else:
+                                st.error(
+                                    f"Erro ao chamar o Google Gemini: "
+                                    f"HTTP {exc.code}. {detalhe}"
+                                )
+            
+                            return
 
             except error.URLError as exc:
                 st.error(
