@@ -101,7 +101,7 @@ def _preparar_contexto_financeiro(
             "VALOR_ABS",
             ascending=False
         )
-        .head(20)
+        .head(5)
     )
 
     def montar_linhas(dados):
