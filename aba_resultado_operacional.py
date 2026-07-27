@@ -144,3 +144,79 @@ def render_aba_resultado_operacional(
         use_container_width=True,
         height=800
     )
+    
+    # ==========================================================
+    # EXPORTAÇÃO PARA EXCEL
+    # ==========================================================
+
+    if filtro_classificacao == "operacional":
+        nome_tipo = "Operacional"
+    elif filtro_classificacao == "nao_operacional":
+        nome_tipo = "Nao_Operacional"
+    else:
+        nome_tipo = "Todos"
+
+    if "Todos" in cc_sel or len(cc_sel) == 0:
+        sufixo = ""
+    elif len(cc_sel) == 1:
+        ctr = cc_sel[0].split("-")[0].replace("/", "-")
+        sufixo = f"_{ctr}"
+    else:
+        sufixo = "_Filtrado"
+
+    nome_arquivo = (
+        f"Resultado_Operacional_{nome_tipo}_{ano_sel}{sufixo}.xlsx"
+    )
+
+    buffer = io.BytesIO()
+
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+
+        df_export = df_visual[cols_export].copy()
+
+        df_export.to_excel(
+            writer,
+            index=False,
+            sheet_name="Resultado Operacional"
+        )
+
+        ws = writer.sheets["Resultado Operacional"]
+
+        #
+        # Congela o cabeçalho
+        #
+        ws.freeze_panes = "A2"
+
+        #
+        # Liga o filtro do Excel
+        #
+        ws.auto_filter.ref = ws.dimensions
+
+        #
+        # Ajusta largura automática das colunas
+        #
+        for coluna in ws.columns:
+
+            tamanho = 0
+
+            letra = coluna[0].column_letter
+
+            for celula in coluna:
+
+                try:
+                    tamanho = max(
+                        tamanho,
+                        len(str(celula.value))
+                    )
+
+                except:
+                    pass
+
+            ws.column_dimensions[letra].width = min(tamanho + 3, 40)
+
+    st.download_button(
+        "📥 Exportar Resultado Operacional (Excel)",
+        data=buffer.getvalue(),
+        file_name=nome_arquivo,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
