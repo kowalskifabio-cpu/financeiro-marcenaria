@@ -17,7 +17,156 @@ from aba_resultado_operacional import render_aba_resultado_operacional
 # =========================
 # CONFIGURAÇÃO GERAL
 # =========================
-st.set_page_config(page_title="Status Marcenaria - BI Financeiro", layout="wide")
+st.set_page_config(
+    page_title="Status Marcenaria - BI Financeiro",
+    page_icon="📊",
+    layout="wide"
+)
+
+
+# =========================
+# AUTENTICAÇÃO DO ADMINISTRADOR
+# =========================
+def autenticar_administrador():
+    """
+    Impede o carregamento do sistema enquanto o administrador
+    não informar usuário e senha válidos.
+    """
+
+    if "admin_autenticado" not in st.session_state:
+        st.session_state["admin_autenticado"] = False
+
+    if "admin_usuario" not in st.session_state:
+        st.session_state["admin_usuario"] = ""
+
+    # ---------------------------------------------------------
+    # USUÁRIO JÁ AUTENTICADO
+    # ---------------------------------------------------------
+    if st.session_state["admin_autenticado"]:
+
+        st.sidebar.success(
+            f"🔐 Administrador: "
+            f"{st.session_state['admin_usuario']}"
+        )
+
+        if st.sidebar.button(
+            "🚪 Sair do sistema",
+            key="btn_logout_admin",
+            use_container_width=True
+        ):
+            st.session_state["admin_autenticado"] = False
+            st.session_state["admin_usuario"] = ""
+
+            st.rerun()
+
+        return
+
+    # ---------------------------------------------------------
+    # CONFERE SE AS CREDENCIAIS EXISTEM NO SECRETS
+    # ---------------------------------------------------------
+    if "credentials" not in st.secrets:
+        st.error(
+            "❌ O bloco [credentials] não foi encontrado "
+            "nos Secrets do Streamlit."
+        )
+
+        st.code(
+            """
+[credentials]
+master_user = "administrador"
+master_password = "sua_senha"
+            """,
+            language="toml"
+        )
+
+        st.stop()
+
+    usuario_correto = str(
+        st.secrets["credentials"].get("master_user", "")
+    ).strip()
+
+    senha_correta = str(
+        st.secrets["credentials"].get("master_password", "")
+    )
+
+    if not usuario_correto or not senha_correta:
+        st.error(
+            "❌ As credenciais do administrador estão incompletas "
+            "nos Secrets do Streamlit."
+        )
+        st.stop()
+
+    # ---------------------------------------------------------
+    # TELA DE LOGIN
+    # ---------------------------------------------------------
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stForm"] {
+            max-width: 460px;
+            margin: 40px auto;
+            padding: 28px;
+            border: 1px solid #d1d5db;
+            border-radius: 12px;
+            background-color: white;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+        }
+
+        div[data-testid="stForm"] h2 {
+            text-align: center;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    with st.form("form_login_administrador"):
+        st.markdown("## 🔐 Acesso Administrativo")
+        st.caption("Sistema Financeiro — Status Marcenaria")
+
+        usuario_informado = st.text_input(
+            "Usuário",
+            placeholder="Informe o usuário administrador"
+        )
+
+        senha_informada = st.text_input(
+            "Senha",
+            type="password",
+            placeholder="Informe a senha"
+        )
+
+        entrar = st.form_submit_button(
+            "Entrar no sistema",
+            use_container_width=True
+        )
+
+    if entrar:
+        usuario_valido = hmac.compare_digest(
+            usuario_informado.strip(),
+            usuario_correto
+        )
+
+        senha_valida = hmac.compare_digest(
+            senha_informada,
+            senha_correta
+        )
+
+        if usuario_valido and senha_valida:
+            st.session_state["admin_autenticado"] = True
+            st.session_state["admin_usuario"] = usuario_informado.strip()
+
+            st.rerun()
+
+        else:
+            st.error("❌ Usuário ou senha incorretos.")
+
+    # Interrompe o restante do app enquanto não houver login
+    st.stop()
+
+
+# Executa a proteção antes de carregar Supabase e relatórios
+autenticar_administrador()
+
 
 MESES_LISTA = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
