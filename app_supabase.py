@@ -2,6 +2,7 @@
 # App financeiro migrado para Supabase, sem dependência operacional de Google Sheets.
 
 import io
+import hmac
 import calendar
 from datetime import datetime
 
