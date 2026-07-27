@@ -1000,48 +1000,48 @@ with aba8:
 with aba9:
     st.subheader("🧾 Composição da Obra")
 
-        col_f1, col_f2 = st.columns(2)
+    col_f1, col_f2 = st.columns(2)
 
-        with col_f1:
-            anos_comp_sel = st.multiselect(
-                "Anos da Obra",
-                ANOS_PADRAO,
-                default=[ano_sel],
-                key="anos_comp_obra_v17"
-            )
-    
-        with col_f2:
-            meses_comp_sel = st.multiselect(
-                "Meses da Obra",
-                MESES_LISTA,
-                default=MESES_LISTA,
-                key="meses_comp_obra_v17"
-            )
-    
-        usar_rateio_comp = st.toggle(
-            "🔄 Ativar Rateio na Composição da Obra",
-            value=False,
-            key="usar_rateio_composicao_obra_v17",
-            help=(
-                "Quando ativado, distribui os custos dos centros classificados "
-                "como rateio entre as obras. Quando desativado, mostra somente "
-                "os lançamentos diretos da obra."
-            )
+    with col_f1:
+        anos_comp_sel = st.multiselect(
+            "Anos da Obra",
+            ANOS_PADRAO,
+            default=[ano_sel],
+            key="anos_comp_obra_v17"
         )
-    
-        if usar_rateio_comp:
-            st.info(
-                "🔄 Rateio ativado: a coluna Rateado será acrescentada "
-                "aos custos diretos da obra."
-            )
-        else:
-            st.caption(
-                "Rateio desativado: o relatório mostrará somente os "
-                "lançamentos diretos da obra."
-            )
-    
-        obras_sel = [c for c in cc_sel if c != "Todos"]
 
+    with col_f2:
+        meses_comp_sel = st.multiselect(
+            "Meses da Obra",
+            MESES_LISTA,
+            default=MESES_LISTA,
+            key="meses_comp_obra_v17"
+        )
+
+    usar_rateio_comp = st.toggle(
+        "🔄 Ativar Rateio na Composição da Obra",
+        value=False,
+        key="usar_rateio_composicao_obra_v17",
+        help=(
+            "Quando ativado, distribui os custos dos centros classificados "
+            "como rateio entre as obras. Quando desativado, mostra somente "
+            "os lançamentos diretos da obra."
+        )
+    )
+
+    if usar_rateio_comp:
+        st.info(
+            "🔄 Rateio ativado: a coluna Rateado será acrescentada "
+            "aos custos diretos da obra."
+        )
+    else:
+        st.caption(
+            "Rateio desativado: o relatório mostrará somente os "
+            "lançamentos diretos da obra."
+        )
+
+    obras_sel = [c for c in cc_sel if c != "Todos"]
+        
     if not obras_sel:
         st.info("Selecione ao menos uma obra no filtro lateral de Centro de Custo.")
     
