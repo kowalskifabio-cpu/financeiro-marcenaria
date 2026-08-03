@@ -1,27 +1,43 @@
+import io
+
 import pandas as pd
 import streamlit as st
 
+from servico_orcamento import (
+    MESES_NUMERO_NOME,
+    carregar_itens_orcamento,
+    carregar_orcamentos,
+    calcular_resumo_orcamento,
+    montar_grade_orcamento,
+    replicar_valor_na_grade,
+    salvar_grade_orcamento,
+)
 
-MESES = {
-    1: "Janeiro",
-    2: "Fevereiro",
-    3: "Março",
-    4: "Abril",
-    5: "Maio",
-    6: "Junho",
-    7: "Julho",
-    8: "Agosto",
-    9: "Setembro",
-    10: "Outubro",
-    11: "Novembro",
-    12: "Dezembro",
-}
+
+COLUNAS_MESES = list(MESES_NUMERO_NOME.values())
+
+
+def _formatar_moeda(valor):
+    try:
+        valor = float(valor)
+    except Exception:
+        return str(valor)
+
+    sinal = "-" if valor < 0 else ""
+
+    numero = (
+        f"{abs(valor):,.2f}"
+        .replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
+
+    return f"{sinal}R$ {numero}"
 
 
 def _validar_master():
     """
-    Protege a aba de orçamento com a senha cadastrada
-    nos Secrets do Streamlit.
+    Mantém a proteção adicional da área de orçamento.
     """
 
     try:
@@ -35,7 +51,10 @@ def _validar_master():
         )
         return False
 
-    if st.session_state.get("master_obz_autenticado", False):
+    if st.session_state.get(
+        "master_obz_autenticado",
+        False
+    ):
         return True
 
     st.warning(
@@ -53,47 +72,184 @@ def _validar_master():
         key="btn_entrar_master_obz"
     ):
         if senha_digitada == senha_correta:
-            st.session_state["master_obz_autenticado"] = True
-            st.success("Acesso liberado.")
+            st.session_state[
+                "master_obz_autenticado"
+            ] = True
+
             st.rerun()
+
         else:
             st.error("Senha incorreta.")
 
     return False
 
 
-def _carregar_orcamentos(supabase_client):
-    resposta = (
-        supabase_client
-        .table("orcamentos")
-        .select("*")
-        .order("ano", desc=True)
-        .order("versao", desc=True)
-        .execute()
+def _montar_rotulo_orcamento(row):
+    ano = int(row["ano"])
+    nome = str(row["nome"])
+    versao = int(row["versao"])
+    status = str(row["status"]).replace("_", " ").title()
+
+    return (
+        f"{ano} — {nome} — "
+        f"Versão {versao} — {status}"
     )
 
-    return pd.DataFrame(resposta.data or [])
 
+def _carregar_grade_na_sessao(
+    supabase_client,
+    carregar_aba_base,
+    orcamento_id
+):
+    """
+    Recarrega a grade diretamente do banco.
+    """
 
-def _carregar_contas(carregar_aba_base):
-    df_contas = carregar_aba_base().copy()
+    df_plano = carregar_aba_base().copy()
 
-    if df_contas.empty:
-        return pd.DataFrame()
-
-    df_contas["Conta"] = (
-        df_contas["Conta"]
-        .astype(str)
-        .str.strip()
+    df_itens = carregar_itens_orcamento(
+        supabase_client=supabase_client,
+        orcamento_id=orcamento_id
     )
 
-    df_contas["Descrição"] = (
-        df_contas["Descrição"]
-        .astype(str)
-        .str.strip()
+    grade = montar_grade_orcamento(
+        df_plano_contas=df_plano,
+        df_itens=df_itens
     )
 
-    return df_contas
+    st.session_state["grade_obz"] = grade
+
+    st.session_state[
+        "grade_obz_orcamento_id"
+    ] = int(orcamento_id)
+
+    st.session_state[
+        "grade_obz_alterada"
+    ] = False
+
+
+def _garantir_grade_carregada(
+    supabase_client,
+    carregar_aba_base,
+    orcamento_id
+):
+    """
+    Carrega a grade quando o usuário abre outro orçamento
+    ou quando ainda não existe grade na sessão.
+    """
+
+    id_carregado = st.session_state.get(
+        "grade_obz_orcamento_id"
+    )
+
+    if (
+        "grade_obz" not in st.session_state
+        or id_carregado != int(orcamento_id)
+    ):
+        _carregar_grade_na_sessao(
+            supabase_client=supabase_client,
+            carregar_aba_base=carregar_aba_base,
+            orcamento_id=orcamento_id
+        )
+
+
+def _calcular_total_anual(df):
+    df = df.copy()
+
+    for coluna in COLUNAS_MESES:
+        df[coluna] = pd.to_numeric(
+            df[coluna],
+            errors="coerce"
+        ).fillna(0.0)
+
+    df["Total Anual"] = df[
+        COLUNAS_MESES
+    ].sum(axis=1)
+
+    return df
+
+
+def _gerar_excel_orcamento(
+    df_grade,
+    ano,
+    versao
+):
+    buffer = io.BytesIO()
+
+    colunas_exportar = [
+        "Conta",
+        "Descrição",
+        "Nivel",
+        "Classificacao"
+    ] + COLUNAS_MESES + ["Total Anual"]
+
+    with pd.ExcelWriter(
+        buffer,
+        engine="openpyxl"
+    ) as writer:
+        df_grade[
+            colunas_exportar
+        ].to_excel(
+            writer,
+            index=False,
+            sheet_name="Orçamento"
+        )
+
+        planilha = writer.sheets["Orçamento"]
+
+        planilha.freeze_panes = "A2"
+        planilha.auto_filter.ref = planilha.dimensions
+
+        for coluna in planilha.columns:
+            letra = coluna[0].column_letter
+
+            maior_tamanho = 0
+
+            for celula in coluna:
+                valor = (
+                    ""
+                    if celula.value is None
+                    else str(celula.value)
+                )
+
+                maior_tamanho = max(
+                    maior_tamanho,
+                    len(valor)
+                )
+
+            planilha.column_dimensions[
+                letra
+            ].width = min(
+                maior_tamanho + 3,
+                42
+            )
+
+        colunas_monetarias = (
+            COLUNAS_MESES + ["Total Anual"]
+        )
+
+        for nome_coluna in colunas_monetarias:
+            numero_coluna = colunas_exportar.index(
+                nome_coluna
+            ) + 1
+
+            for linha in range(
+                2,
+                planilha.max_row + 1
+            ):
+                planilha.cell(
+                    row=linha,
+                    column=numero_coluna
+                ).number_format = (
+                    'R$ #,##0.00;[Red]-R$ #,##0.00'
+                )
+
+    nome_arquivo = (
+        f"Orcamento_OBZ_{ano}_"
+        f"Versao_{versao}.xlsx"
+    )
+
+    return buffer.getvalue(), nome_arquivo
 
 
 def render_aba_orcamento_obz(
@@ -105,17 +261,32 @@ def render_aba_orcamento_obz(
     if not _validar_master():
         return
 
-    col_sair, col_espaco = st.columns([1, 4])
+    col_sair, col_recarregar, col_espaco = (
+        st.columns([1, 1, 3])
+    )
 
     with col_sair:
         if st.button(
             "🔒 Sair da área Master",
             key="btn_sair_master_obz"
         ):
-            st.session_state["master_obz_autenticado"] = False
+            st.session_state[
+                "master_obz_autenticado"
+            ] = False
+
+            st.session_state.pop(
+                "grade_obz",
+                None
+            )
+
+            st.session_state.pop(
+                "grade_obz_orcamento_id",
+                None
+            )
+
             st.rerun()
 
-    df_orcamentos = _carregar_orcamentos(
+    df_orcamentos = carregar_orcamentos(
         supabase_client
     )
 
@@ -125,298 +296,417 @@ def render_aba_orcamento_obz(
         )
         return
 
+    df_orcamentos = df_orcamentos.copy()
+
     df_orcamentos["rotulo"] = (
-        df_orcamentos["ano"].astype(str)
-        + " — "
-        + df_orcamentos["nome"].astype(str)
-        + " — Versão "
-        + df_orcamentos["versao"].astype(str)
-        + " — "
-        + df_orcamentos["status"].astype(str)
+        df_orcamentos.apply(
+            _montar_rotulo_orcamento,
+            axis=1
+        )
     )
 
     rotulo_selecionado = st.selectbox(
         "Orçamento",
-        options=df_orcamentos["rotulo"].tolist(),
-        key="orcamento_obz_selecionado"
+        options=df_orcamentos[
+            "rotulo"
+        ].tolist(),
+        key="orcamento_obz_grade_selecionado"
     )
 
-    orcamento = df_orcamentos[
-        df_orcamentos["rotulo"] == rotulo_selecionado
+    linha_orcamento = df_orcamentos[
+        df_orcamentos["rotulo"]
+        == rotulo_selecionado
     ].iloc[0]
 
-    orcamento_id = int(orcamento["id"])
-    status = str(orcamento["status"]).strip().lower()
+    orcamento_id = int(
+        linha_orcamento["id"]
+    )
 
-    c1, c2, c3 = st.columns(3)
+    ano_orcamento = int(
+        linha_orcamento["ano"]
+    )
+
+    versao_orcamento = int(
+        linha_orcamento["versao"]
+    )
+
+    status_orcamento = str(
+        linha_orcamento["status"]
+    ).strip().lower()
+
+    pode_editar = status_orcamento in [
+        "rascunho",
+        "em_revisao"
+    ]
+
+    _garantir_grade_carregada(
+        supabase_client=supabase_client,
+        carregar_aba_base=carregar_aba_base,
+        orcamento_id=orcamento_id
+    )
+
+    with col_recarregar:
+        if st.button(
+            "🔄 Recarregar",
+            key="btn_recarregar_grade_obz",
+            help=(
+                "Descarta alterações ainda não salvas "
+                "e recarrega os valores do Supabase."
+            )
+        ):
+            _carregar_grade_na_sessao(
+                supabase_client=supabase_client,
+                carregar_aba_base=carregar_aba_base,
+                orcamento_id=orcamento_id
+            )
+
+            st.rerun()
+
+    grade_atual = st.session_state[
+        "grade_obz"
+    ].copy()
+
+    grade_atual = _calcular_total_anual(
+        grade_atual
+    )
+
+    resumo = calcular_resumo_orcamento(
+        grade_atual
+    )
+
+    st.write("### Resumo anual")
+
+    c1, c2, c3, c4 = st.columns(4)
 
     c1.metric(
-        "Ano",
-        int(orcamento["ano"])
+        "Receitas orçadas",
+        _formatar_moeda(
+            resumo["receitas"]
+        )
     )
 
     c2.metric(
-        "Versão",
-        int(orcamento["versao"])
+        "Despesas orçadas",
+        _formatar_moeda(
+            resumo["despesas"]
+        )
     )
 
     c3.metric(
-        "Status",
-        status.replace("_", " ").title()
+        "Resultado orçado",
+        _formatar_moeda(
+            resumo["resultado"]
+        )
     )
 
-    if status not in ["rascunho", "em_revisao"]:
+    c4.metric(
+        "Margem orçada",
+        f"{resumo['margem']:.2f}%"
+    )
+
+    c5, c6, c7 = st.columns(3)
+
+    c5.metric(
+        "Ano",
+        ano_orcamento
+    )
+
+    c6.metric(
+        "Versão",
+        versao_orcamento
+    )
+
+    c7.metric(
+        "Status",
+        status_orcamento
+        .replace("_", " ")
+        .title()
+    )
+
+    if not pode_editar:
         st.warning(
-            "Este orçamento não permite alterações porque "
-            f"está com status: {status}."
+            "Este orçamento está bloqueado para edição. "
+            f"Status atual: {status_orcamento}."
         )
-        return
 
     st.divider()
-    st.write("### Incluir valor orçado")
 
-    df_contas = _carregar_contas(
-        carregar_aba_base
+    st.write("### Grade anual do orçamento")
+
+    st.caption(
+        "Edite diretamente os valores de janeiro a dezembro. "
+        "Receitas devem ser positivas e despesas negativas."
     )
 
-    if df_contas.empty:
-        st.error(
-            "Não foi possível carregar o plano de contas."
+    colunas_desabilitadas = [
+        "Conta",
+        "Descrição",
+        "Nivel",
+        "Classificacao",
+        "Total Anual"
+    ]
+
+    configuracao_colunas = {
+        "Conta": st.column_config.TextColumn(
+            "Conta",
+            disabled=True,
+            width="medium"
+        ),
+        "Descrição": st.column_config.TextColumn(
+            "Descrição",
+            disabled=True,
+            width="large"
+        ),
+        "Nivel": st.column_config.NumberColumn(
+            "Nível",
+            disabled=True
+        ),
+        "Classificacao": st.column_config.TextColumn(
+            "Classificação",
+            disabled=True
+        ),
+        "Total Anual": st.column_config.NumberColumn(
+            "Total Anual",
+            disabled=True,
+            format="R$ %.2f"
         )
-        return
+    }
 
-    # Inicialmente usamos apenas contas analíticas.
-    df_analiticas = df_contas[
-        df_contas["Nivel"] >= 4
-    ].copy()
-
-    df_analiticas["rotulo"] = (
-        df_analiticas["Conta"]
-        + " — "
-        + df_analiticas["Descrição"]
-    )
-
-    conta_rotulo = st.selectbox(
-        "Conta contábil",
-        options=df_analiticas["rotulo"].tolist(),
-        key="conta_orcamento_obz"
-    )
-
-    conta_id = conta_rotulo.split(" — ")[0].strip()
-
-    col_mes, col_valor = st.columns(2)
-
-    with col_mes:
-        mes_inicial = st.selectbox(
-            "Mês inicial",
-            options=list(MESES.keys()),
-            format_func=lambda numero: MESES[numero],
-            key="mes_inicial_orcamento_obz"
-        )
-
-    with col_valor:
-        valor_orcado = st.number_input(
-            "Valor mensal",
-            value=0.0,
+    for nome_mes in COLUNAS_MESES:
+        configuracao_colunas[
+            nome_mes
+        ] = st.column_config.NumberColumn(
+            nome_mes,
+            format="R$ %.2f",
             step=100.0,
-            format="%.2f",
-            key="valor_orcamento_obz"
+            disabled=not pode_editar
         )
 
-    replicar = st.checkbox(
-        "Replicar este valor para os meses seguintes",
-        value=False,
-        key="replicar_orcamento_obz"
+    grade_editada = st.data_editor(
+        grade_atual,
+        use_container_width=True,
+        height=700,
+        hide_index=True,
+        disabled=(
+            True
+            if not pode_editar
+            else colunas_desabilitadas
+        ),
+        column_config=configuracao_colunas,
+        key=(
+            f"editor_grade_obz_{orcamento_id}"
+        )
     )
 
-    mes_final = mes_inicial
+    grade_editada = _calcular_total_anual(
+        grade_editada
+    )
 
-    if replicar:
+    st.session_state[
+        "grade_obz"
+    ] = grade_editada
+
+    st.divider()
+
+    st.write("### Replicar valor para meses seguintes")
+
+    st.caption(
+        "Use esta função depois de preencher o mês de origem "
+        "na grade acima."
+    )
+
+    opcoes_contas = (
+        grade_editada["Conta"]
+        .astype(str)
+        .tolist()
+    )
+
+    mapa_rotulo_contas = dict(
+        zip(
+            grade_editada["Conta"].astype(str),
+            (
+                grade_editada["Conta"].astype(str)
+                + " — "
+                + grade_editada["Descrição"].astype(str)
+            )
+        )
+    )
+
+    col_conta, col_origem, col_final = (
+        st.columns([2, 1, 1])
+    )
+
+    with col_conta:
+        conta_replicar = st.selectbox(
+            "Conta",
+            options=opcoes_contas,
+            format_func=lambda conta: (
+                mapa_rotulo_contas.get(
+                    conta,
+                    conta
+                )
+            ),
+            key="conta_replicar_grade_obz",
+            disabled=not pode_editar
+        )
+
+    with col_origem:
+        mes_origem = st.selectbox(
+            "Mês de origem",
+            options=COLUNAS_MESES,
+            key="mes_origem_grade_obz",
+            disabled=not pode_editar
+        )
+
+    numero_mes_origem = (
+        COLUNAS_MESES.index(
+            mes_origem
+        )
+    )
+
+    meses_finais_possiveis = (
+        COLUNAS_MESES[
+            numero_mes_origem:
+        ]
+    )
+
+    with col_final:
         mes_final = st.selectbox(
             "Replicar até",
-            options=[
-                mes
-                for mes in MESES.keys()
-                if mes >= mes_inicial
-            ],
-            index=len([
-                mes
-                for mes in MESES.keys()
-                if mes >= mes_inicial
-            ]) - 1,
-            format_func=lambda numero: MESES[numero],
-            key="mes_final_orcamento_obz"
+            options=meses_finais_possiveis,
+            index=(
+                len(
+                    meses_finais_possiveis
+                ) - 1
+            ),
+            key="mes_final_grade_obz",
+            disabled=not pode_editar
         )
-
-    justificativa = st.text_area(
-        "Justificativa obrigatória",
-        placeholder=(
-            "Explique por que este valor é necessário "
-            "no orçamento base zero."
-        ),
-        key="justificativa_orcamento_obz"
-    )
-
-    responsavel = st.text_input(
-        "Responsável",
-        value="Administrador Master",
-        key="responsavel_orcamento_obz"
-    )
 
     if st.button(
-        "💾 Salvar valor orçado",
-        key="btn_salvar_item_orcamento_obz"
+        "➡️ Replicar valor",
+        key="btn_replicar_grade_obz",
+        disabled=not pode_editar
     ):
-        justificativa_limpa = justificativa.strip()
-
-        if valor_orcado == 0:
-            st.error(
-                "Informe um valor diferente de zero."
-            )
-            return
-
-        if len(justificativa_limpa) < 3:
-            st.error(
-                "Informe uma justificativa com ao menos "
-                "três caracteres."
-            )
-            return
-
-        meses_gravar = list(
-            range(mes_inicial, mes_final + 1)
-        )
-
-        registros = []
-
-        for mes in meses_gravar:
-            registros.append({
-                "orcamento_id": orcamento_id,
-                "conta_id": conta_id,
-                "mes": int(mes),
-                "valor_orcado": float(valor_orcado),
-                "justificativa": justificativa_limpa,
-                "responsavel": responsavel.strip(),
-                "criado_por": "Administrador Master"
-            })
-
         try:
-            for registro in registros:
-                (
-                    supabase_client
-                    .table("orcamento_itens")
-                    .upsert(
-                        registro,
-                        on_conflict=(
-                            "orcamento_id,conta_id,mes"
-                        )
-                    )
-                    .execute()
+            grade_replicada = (
+                replicar_valor_na_grade(
+                    df_grade=grade_editada,
+                    conta_id=conta_replicar,
+                    mes_origem=mes_origem,
+                    mes_final=mes_final
                 )
-
-            acao = (
-                "replicado"
-                if len(registros) > 1
-                else "incluido"
             )
 
-            (
-                supabase_client
-                .table("orcamento_historico")
-                .insert({
-                    "orcamento_id": orcamento_id,
-                    "acao": acao,
-                    "valor_novo": {
-                        "conta_id": conta_id,
-                        "mes_inicial": mes_inicial,
-                        "mes_final": mes_final,
-                        "valor_orcado": float(valor_orcado)
-                    },
-                    "usuario": "Administrador Master",
-                    "observacao": justificativa_limpa
-                })
-                .execute()
-            )
+            st.session_state[
+                "grade_obz"
+            ] = grade_replicada
 
             st.success(
-                f"Valor salvo para {len(registros)} mês(es)."
+                f"Valor de {mes_origem} replicado "
+                f"até {mes_final}."
             )
+
+            st.rerun()
 
         except Exception as erro:
             st.error(
-                "Erro ao salvar o orçamento: "
+                "Não foi possível replicar o valor: "
                 f"{type(erro).__name__} — {erro}"
             )
 
     st.divider()
-    st.write("### Valores já cadastrados")
 
-    try:
-        resposta_itens = (
-            supabase_client
-            .table("orcamento_itens")
-            .select("*")
-            .eq("orcamento_id", orcamento_id)
-            .order("conta_id")
-            .order("mes")
-            .execute()
-        )
+    st.write("### Salvar orçamento")
 
-        df_itens = pd.DataFrame(
-            resposta_itens.data or []
-        )
+    justificativa_geral = st.text_area(
+        "Justificativa geral desta revisão",
+        placeholder=(
+            "Exemplo: revisão do orçamento mensal "
+            "com base nas premissas aprovadas pela diretoria."
+        ),
+        key="justificativa_salvar_grade_obz",
+        disabled=not pode_editar
+    )
 
-        if df_itens.empty:
-            st.info(
-                "Este orçamento ainda não possui valores."
-            )
-            return
+    responsavel = st.text_input(
+        "Responsável pela revisão",
+        value="Administrador Master",
+        key="responsavel_salvar_grade_obz",
+        disabled=not pode_editar
+    )
 
-        mapa_descricao = dict(
-            zip(
-                df_contas["Conta"],
-                df_contas["Descrição"]
-            )
-        )
+    col_salvar, col_exportar = st.columns(2)
 
-        df_itens["Descrição"] = (
-            df_itens["conta_id"]
-            .map(mapa_descricao)
-            .fillna("")
-        )
-
-        df_itens["Mês"] = (
-            df_itens["mes"]
-            .map(MESES)
-        )
-
-        df_visual = df_itens[[
-            "conta_id",
-            "Descrição",
-            "Mês",
-            "valor_orcado",
-            "justificativa",
-            "responsavel"
-        ]].copy()
-
-        df_visual = df_visual.rename(columns={
-            "conta_id": "Conta",
-            "valor_orcado": "Valor Orçado",
-            "justificativa": "Justificativa",
-            "responsavel": "Responsável"
-        })
-
-        st.dataframe(
-            df_visual.style.format({
-                "Valor Orçado": (
-                    "R$ {:,.2f}"
-                )
-            }),
+    with col_salvar:
+        if st.button(
+            "💾 Salvar alterações",
+            key="btn_salvar_grade_obz",
             use_container_width=True,
-            height=500
+            disabled=not pode_editar
+        ):
+            try:
+                quantidade = (
+                    salvar_grade_orcamento(
+                        supabase_client=(
+                            supabase_client
+                        ),
+                        orcamento_id=(
+                            orcamento_id
+                        ),
+                        df_grade=(
+                            grade_editada
+                        ),
+                        justificativa_padrao=(
+                            justificativa_geral
+                        ),
+                        responsavel=(
+                            responsavel
+                        )
+                    )
+                )
+
+                _carregar_grade_na_sessao(
+                    supabase_client=(
+                        supabase_client
+                    ),
+                    carregar_aba_base=(
+                        carregar_aba_base
+                    ),
+                    orcamento_id=(
+                        orcamento_id
+                    )
+                )
+
+                st.success(
+                    "Orçamento salvo com sucesso. "
+                    f"{quantidade} registros mensais "
+                    "foram processados."
+                )
+
+            except Exception as erro:
+                st.error(
+                    "Erro ao salvar a grade: "
+                    f"{type(erro).__name__} — {erro}"
+                )
+
+    with col_exportar:
+        arquivo_excel, nome_arquivo = (
+            _gerar_excel_orcamento(
+                df_grade=grade_editada,
+                ano=ano_orcamento,
+                versao=versao_orcamento
+            )
         )
 
-    except Exception as erro:
-        st.error(
-            "Erro ao carregar os itens do orçamento: "
-            f"{type(erro).__name__} — {erro}"
+        st.download_button(
+            "📥 Exportar orçamento para Excel",
+            data=arquivo_excel,
+            file_name=nome_arquivo,
+            mime=(
+                "application/"
+                "vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            use_container_width=True
         )
