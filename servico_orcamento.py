@@ -421,3 +421,208 @@ def calcular_resumo_orcamento(df_grade):
         "resultado": float(resultado),
         "margem": float(margem)
     }
+
+def alterar_status_orcamento(
+    supabase_client,
+    orcamento_id,
+    novo_status,
+    usuario,
+    observacao=""
+):
+    """
+    Altera o status do orçamento e registra a ação no histórico.
+    """
+
+    status_validos = [
+        "rascunho",
+        "em_revisao",
+        "aprovado",
+        "bloqueado",
+        "cancelado"
+    ]
+
+    if novo_status not in status_validos:
+        raise ValueError(
+            f"Status inválido: {novo_status}"
+        )
+
+    dados_atualizacao = {
+        "status": novo_status
+    }
+
+    if novo_status == "aprovado":
+        dados_atualizacao["aprovado_por"] = usuario
+        dados_atualizacao["aprovado_em"] = "now()"
+
+    if novo_status == "bloqueado":
+        dados_atualizacao["bloqueado_por"] = usuario
+        dados_atualizacao["bloqueado_em"] = "now()"
+
+    (
+        supabase_client
+        .table("orcamentos")
+        .update(dados_atualizacao)
+        .eq("id", int(orcamento_id))
+        .execute()
+    )
+
+    mapa_acao = {
+        "em_revisao": "enviado_revisao",
+        "aprovado": "aprovado",
+        "bloqueado": "bloqueado",
+        "rascunho": "desbloqueado",
+        "cancelado": "cancelado"
+    }
+
+    (
+        supabase_client
+        .table("orcamento_historico")
+        .insert({
+            "orcamento_id": int(orcamento_id),
+            "acao": mapa_acao[novo_status],
+            "valor_novo": {
+                "status": novo_status
+            },
+            "usuario": usuario,
+            "observacao": observacao
+        })
+        .execute()
+    )
+
+
+def criar_nova_versao_orcamento(
+    supabase_client,
+    orcamento_id_origem,
+    usuario,
+    observacao=""
+):
+    """
+    Cria uma nova versão copiando o orçamento e todos os itens.
+    """
+
+    resposta_origem = (
+        supabase_client
+        .table("orcamentos")
+        .select("*")
+        .eq("id", int(orcamento_id_origem))
+        .single()
+        .execute()
+    )
+
+    origem = resposta_origem.data
+
+    if not origem:
+        raise ValueError(
+            "Orçamento de origem não encontrado."
+        )
+
+    ano = int(origem["ano"])
+    nome = str(origem["nome"])
+
+    resposta_versoes = (
+        supabase_client
+        .table("orcamentos")
+        .select("versao")
+        .eq("ano", ano)
+        .eq("nome", nome)
+        .order("versao", desc=True)
+        .limit(1)
+        .execute()
+    )
+
+    versoes = resposta_versoes.data or []
+    nova_versao = (
+        int(versoes[0]["versao"]) + 1
+        if versoes
+        else 1
+    )
+
+    resposta_novo = (
+        supabase_client
+        .table("orcamentos")
+        .insert({
+            "ano": ano,
+            "nome": nome,
+            "versao": nova_versao,
+            "status": "rascunho",
+            "observacao": observacao,
+            "criado_por": usuario
+        })
+        .execute()
+    )
+
+    novo_orcamento = (
+        resposta_novo.data or []
+    )[0]
+
+    novo_id = int(
+        novo_orcamento["id"]
+    )
+
+    resposta_itens = (
+        supabase_client
+        .table("orcamento_itens")
+        .select("*")
+        .eq("orcamento_id", int(orcamento_id_origem))
+        .execute()
+    )
+
+    itens_origem = resposta_itens.data or []
+
+    novos_itens = []
+
+    for item in itens_origem:
+        novos_itens.append({
+            "orcamento_id": novo_id,
+            "conta_id": item["conta_id"],
+            "mes": int(item["mes"]),
+            "valor_orcado": float(item["valor_orcado"]),
+            "justificativa": item.get(
+                "justificativa",
+                "Copiado da versão anterior."
+            ),
+            "responsavel": item.get(
+                "responsavel",
+                usuario
+            ),
+            "observacao": item.get("observacao"),
+            "criado_por": usuario
+        })
+
+    tamanho_lote = 500
+
+    for inicio in range(
+        0,
+        len(novos_itens),
+        tamanho_lote
+    ):
+        lote = novos_itens[
+            inicio:inicio + tamanho_lote
+        ]
+
+        (
+            supabase_client
+            .table("orcamento_itens")
+            .insert(lote)
+            .execute()
+        )
+
+    (
+        supabase_client
+        .table("orcamento_historico")
+        .insert({
+            "orcamento_id": novo_id,
+            "acao": "criado",
+            "valor_novo": {
+                "versao": nova_versao,
+                "orcamento_origem_id": int(
+                    orcamento_id_origem
+                )
+            },
+            "usuario": usuario,
+            "observacao": observacao
+        })
+        .execute()
+    )
+
+    return novo_id, nova_versao
