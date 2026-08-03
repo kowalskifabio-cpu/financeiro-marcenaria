@@ -603,10 +603,13 @@ def processar_bi(ano, meses, filtros_cc):
                         (df_base["Nivel"] == n) &
                         (df_base["Conta"].astype(str).str.startswith(pref))
                     ][m].sum()
-
+                    
+                    # Preserva eventual lançamento direto feito na conta-mãe
+                    # e soma os valores das contas-filhas.
                     if total_filhos != 0:
-                        df_base.at[idx, m] = total_filhos
-
+                        valor_direto_pai = df_base.at[idx, m]
+                        df_base.at[idx, m] = valor_direto_pai + total_filhos
+                    
             # 3) Nível 1 soma os níveis 2
             for idx, _ in df_base[df_base["Nivel"] == 1].iterrows():
                 df_base.at[idx, m] = df_base[df_base["Nivel"] == 2][m].sum()
