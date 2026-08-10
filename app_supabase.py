@@ -15,6 +15,7 @@ from aba_analista_ia import render_aba_analista_ia
 from aba_resultado_operacional import render_aba_resultado_operacional
 from aba_orcamento_obz import render_aba_orcamento_obz
 from aba_orcado_realizado import render_aba_orcado_realizado
+from aba_painel_executivo import render_aba_painel_executivo
 
 # =========================
 # CONFIGURAÇÃO GERAL
@@ -712,8 +713,8 @@ def inserir_movimentos_com_sobrescrita(df_mov_supabase, ano, mes_num):
 # =========================
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
-aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8, aba9, aba10, aba11, aba12, aba13 = st.tabs([
-    "📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo",
+aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8, aba9, aba10, aba11, aba12, aba13, aba14 = st.tabs([
+    "📥 Carga", "📈 Relatório", "🎯 Indicadores", "🎯 Painel Executivo", "🏢 Obras", "⚖️ Comparativo",
     "⚠️ Alertas", "📉 Curva ABC", "🤖 Analista IA", "🧾 Composição da Obra",
     "⚙️ Configurações",
     "📊 Resultado Operacional",
@@ -1420,5 +1421,14 @@ with aba13:
         ano_sel=ano_sel,
         meses_sel=meses_sel,
         cc_sel=cc_sel
+    )
+
+with aba14:
+    render_aba_painel_executivo(
+        ano_sel=ano_sel,
+        meses_sel=meses_sel,
+        cc_sel=cc_sel,
+        processar_bi=processar_bi,
+        formatar_moeda_br=formatar_moeda_br
     )
 
