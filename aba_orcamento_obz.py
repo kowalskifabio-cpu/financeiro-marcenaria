@@ -750,8 +750,12 @@ def render_aba_orcamento_obz(
 
                 st.session_state.pop("grade_obz", None)
                 st.session_state.pop("grade_obz_orcamento_id", None)
-
+                
+                # força recarregar a lista de orçamentos
+                st.cache_data.clear()
+                
                 st.success("Orçamento enviado para revisão.")
+                
                 st.rerun()
 
             except Exception as erro:
