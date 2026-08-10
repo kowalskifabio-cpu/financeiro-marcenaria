@@ -470,15 +470,6 @@ def render_aba_orcado_realizado(
         key="niveis_orcado_realizado_v2"
     )
 
-        if filtro_classificacao != "todos":
-            niveis_efetivos = [1, 2, 3, 4]
-    
-            st.caption(
-                "Na visão por classificação, a hierarquia completa "
-                "é exibida automaticamente."
-            )
-        else:
-            niveis_efetivos = niveis_sel
             
     ocultar_zerados = st.checkbox(
         "Ocultar contas sem orçamento e sem realizado",
