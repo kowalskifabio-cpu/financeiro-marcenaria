@@ -14,6 +14,7 @@ from supabase import create_client
 from aba_analista_ia import render_aba_analista_ia
 from aba_resultado_operacional import render_aba_resultado_operacional
 from aba_orcamento_obz import render_aba_orcamento_obz
+from aba_orcado_realizado import render_aba_orcado_realizado
 
 # =========================
 # CONFIGURAÇÃO GERAL
