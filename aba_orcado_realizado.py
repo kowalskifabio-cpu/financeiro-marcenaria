@@ -805,6 +805,10 @@ def render_aba_orcado_realizado(
                 (
                     comparativo_visual["Forecast"] != 0
                 )
+                |
+                (
+                    comparativo_visual["Nivel"] == 1
+                )
             ].copy()
 
         colunas_exibir.insert(
