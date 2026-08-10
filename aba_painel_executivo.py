@@ -21,9 +21,11 @@ def render_aba_painel_executivo(
     meses_sel,
     cc_sel,
     processar_bi,
-    formatar_moeda_br
+    formatar_moeda_br,
+    obter_movimentos_por_anos_meses,
+    carregar_logica_rateio
 ):
-
+    
     st.title("🎯 Painel Executivo")
 
     df_bi, meses_processados = processar_bi(
