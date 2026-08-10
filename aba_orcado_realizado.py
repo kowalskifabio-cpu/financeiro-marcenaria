@@ -746,7 +746,25 @@ def render_aba_orcado_realizado(
                     df_orcado_futuro["Orçado"]
                 )
             )
+        if filtro_classificacao != "todos":
+            contas_permitidas = set(
+                comparativo[
+                    comparativo["Classificacao"]
+                    .fillna("operacional")
+                    .astype(str)
+                    .str.lower()
+                    .str.strip()
+                    == filtro_classificacao
+                ]["Conta"]
+                .astype(str)
+                .tolist()
+            )
 
+            mapa_futuro = {
+                conta: valor
+                for conta, valor in mapa_futuro.items()
+                if conta in contas_permitidas
+            }
         comparativo_forecast = comparativo.copy()
 
         comparativo_forecast["Forecast"] = 0.0
