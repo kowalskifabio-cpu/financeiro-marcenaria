@@ -45,6 +45,46 @@ def carregar_itens_orcamento(
     orcamento_id
 ):
     """
+    Carrega todos os valores mensais de um orçamento,
+    paginando para não ficar limitado aos primeiros
+    1000 registros do Supabase/PostgREST.
+    """
+
+    todos = []
+
+    inicio = 0
+    passo = 1000
+
+    while True:
+
+        resposta = (
+            supabase_client
+            .table("orcamento_itens")
+            .select("*")
+            .eq(
+                "orcamento_id",
+                int(orcamento_id)
+            )
+            .order("conta_id")
+            .order("mes")
+            .range(
+                inicio,
+                inicio + passo - 1
+            )
+            .execute()
+        )
+
+        lote = resposta.data or []
+
+        todos.extend(lote)
+
+        if len(lote) < passo:
+            break
+
+        inicio += passo
+
+    return pd.DataFrame(todos)
+    """
     Carrega os valores mensais de um orçamento.
     """
 
