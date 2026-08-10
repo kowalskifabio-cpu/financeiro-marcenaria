@@ -634,9 +634,13 @@ def render_aba_orcado_realizado(
                 )
             ].copy()
 
-        comparativo_visual = comparativo[
-            comparativo["Nivel"].isin(
-                niveis_sel
+        comparativo = comparativo[
+            (
+                comparativo["Nivel"].isin(
+                    niveis_efetivos
+                )
+                |
+                (comparativo["Nivel"] == 1)
             )
         ].copy()
 
