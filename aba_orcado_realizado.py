@@ -727,6 +727,8 @@ def render_aba_orcado_realizado(
         "Status"
     ]
 
+    comparativo_visual = comparativo.copy()
+    
     if visao == "forecast":
         # Forecast por conta analítica:
         # realizado no período + orçamento futuro da mesma conta.
