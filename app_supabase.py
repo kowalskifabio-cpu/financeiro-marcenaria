@@ -64,40 +64,77 @@ def autenticar_administrador():
 
         return
 
-    # ---------------------------------------------------------
-    # CONFERE SE AS CREDENCIAIS EXISTEM NO SECRETS
-    # ---------------------------------------------------------
-    if "credentials" not in st.secrets:
-        st.error(
-            "❌ O bloco [credentials] não foi encontrado "
-            "nos Secrets do Streamlit."
-        )
-
-        st.code(
-            """
-[credentials]
-master_user = "administrador"
-master_password = "sua_senha"
-            """,
-            language="toml"
-        )
-
-        st.stop()
-
-    usuario_correto = str(
-        st.secrets["credentials"].get("master_user", "")
-    ).strip()
-
-    senha_correta = str(
-        st.secrets["credentials"].get("master_password", "")
-    )
-
-    if not usuario_correto or not senha_correta:
-        st.error(
-            "❌ As credenciais do administrador estão incompletas "
-            "nos Secrets do Streamlit."
-        )
-        st.stop()
+        # ---------------------------------------------------------
+        # CARREGA CREDENCIAIS COM FALLBACK
+        # ---------------------------------------------------------
+        usuario_correto = ""
+        senha_correta = ""
+    
+        try:
+            if "credentials" in st.secrets:
+                usuario_correto = str(
+                    st.secrets["credentials"].get(
+                        "master_user",
+                        ""
+                    )
+                ).strip()
+    
+                senha_correta = str(
+                    st.secrets["credentials"].get(
+                        "master_password",
+                        ""
+                    )
+                )
+        except Exception:
+            pass
+    
+        # Fallback para configuração antiga
+        if not usuario_correto:
+            try:
+                usuario_correto = str(
+                    st.secrets.get(
+                        "MASTER_USER",
+                        "administrador"
+                    )
+                ).strip()
+            except Exception:
+                usuario_correto = "administrador"
+    
+        if not senha_correta:
+            try:
+                senha_correta = str(
+                    st.secrets.get(
+                        "MASTER_PASSWORD",
+                        ""
+                    )
+                )
+            except Exception:
+                senha_correta = ""
+    
+        if not senha_correta:
+            st.error(
+                "❌ Nenhuma senha de administrador foi encontrada "
+                "nos Secrets do Streamlit."
+            )
+    
+            st.code(
+                """
+    Opção 1:
+    
+    [credentials]
+    master_user = "administrador"
+    master_password = "sua_senha"
+    
+    OU
+    
+    Opção 2:
+    
+    MASTER_PASSWORD = "sua_senha"
+                """,
+                language="toml"
+            )
+    
+            st.stop()
 
     # ---------------------------------------------------------
     # TELA DE LOGIN
