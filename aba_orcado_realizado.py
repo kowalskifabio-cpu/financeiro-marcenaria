@@ -12,12 +12,12 @@ from servico_orcamento import (
 
 from servico_orcado_realizado import (
     calcular_forecast,
+    consolidar_hierarquia,
     maiores_desvios,
     montar_comparativo_gerencial,
     montar_orcado_analitico,
     montar_realizado_analitico,
 )
-
 
 MESES = list(MESES_NUMERO_NOME.values())
 
