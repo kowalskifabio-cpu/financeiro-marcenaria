@@ -1430,6 +1430,8 @@ with aba14:
         meses_sel=meses_sel,
         cc_sel=cc_sel,
         processar_bi=processar_bi,
-        formatar_moeda_br=formatar_moeda_br
+        formatar_moeda_br=formatar_moeda_br,
+        obter_movimentos_por_anos_meses=obter_movimentos_por_anos_meses,
+        carregar_logica_rateio=carregar_logica_rateio
     )
 
