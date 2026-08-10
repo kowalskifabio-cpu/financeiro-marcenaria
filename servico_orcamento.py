@@ -453,11 +453,15 @@ def alterar_status_orcamento(
 
     if novo_status == "aprovado":
         dados_atualizacao["aprovado_por"] = usuario
-        dados_atualizacao["aprovado_em"] = "now()"
+        dados_atualizacao["aprovado_em"] = datetime.now(
+            timezone.utc
+        ).isoformat()
 
     if novo_status == "bloqueado":
         dados_atualizacao["bloqueado_por"] = usuario
-        dados_atualizacao["bloqueado_em"] = "now()"
+        dados_atualizacao["bloqueado_em"] = datetime.now(
+            timezone.utc
+        ).isoformat()
 
     (
         supabase_client
