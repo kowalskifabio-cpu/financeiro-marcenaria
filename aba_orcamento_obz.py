@@ -440,6 +440,327 @@ def render_aba_orcamento_obz(
 
     st.divider()
 
+    # =====================================================
+    # IMPORTAÇÃO / EXPORTAÇÃO EXCEL
+    # =====================================================
+
+    st.write("### 📥 Orçamento via Excel")
+
+    st.caption(
+        "Baixe o modelo com o plano de contas atual, "
+        "preencha no Excel e importe novamente sem perder "
+        "o trabalho caso a sessão do sistema seja encerrada."
+    )
+
+    df_plano_excel = carregar_aba_base().copy()
+
+    df_itens_excel = carregar_itens_orcamento(
+        supabase_client=supabase_client,
+        orcamento_id=orcamento_id
+    )
+
+    try:
+        arquivo_modelo, nome_modelo = gerar_modelo_orcamento_excel(
+            df_plano_contas=df_plano_excel,
+            df_itens_existentes=df_itens_excel,
+            ano=ano_orcamento,
+            versao=versao_orcamento
+        )
+
+        st.download_button(
+            "📥 Baixar modelo Excel do orçamento",
+            data=arquivo_modelo,
+            file_name=nome_modelo,
+            mime=(
+                "application/"
+                "vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            use_container_width=True
+        )
+
+    except Exception as erro:
+        st.error(
+            "Erro ao gerar modelo Excel: "
+            f"{type(erro).__name__} — {erro}"
+        )
+
+    arquivo_importado = st.file_uploader(
+        "📤 Importar orçamento preenchido",
+        type=["xlsx"],
+        key="upload_orcamento_excel",
+        disabled=not pode_editar
+    )
+
+    if arquivo_importado is not None:
+
+        try:
+            df_excel = ler_excel_orcamento(
+                arquivo_importado
+            )
+
+            validacao = validar_excel_orcamento(
+                df_excel=df_excel,
+                df_plano_contas=df_plano_excel
+            )
+
+            if validacao["erros"]:
+                st.error(
+                    "O arquivo possui problemas que precisam "
+                    "ser corrigidos antes da importação."
+                )
+
+                for erro in validacao["erros"]:
+                    st.error(erro)
+
+            if validacao["avisos"]:
+                for aviso in validacao["avisos"]:
+                    st.warning(aviso)
+
+            if validacao["contas_nao_encontradas"]:
+                st.write(
+                    "#### Contas não encontradas"
+                )
+
+                st.dataframe(
+                    pd.DataFrame({
+                        "Conta": validacao[
+                            "contas_nao_encontradas"
+                        ]
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            if validacao["celulas_invalidas"]:
+                st.write(
+                    "#### Células inválidas"
+                )
+
+                st.dataframe(
+                    pd.DataFrame(
+                        validacao[
+                            "celulas_invalidas"
+                        ]
+                    ),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            if validacao["valido"]:
+
+                st.success(
+                    "✅ Arquivo validado com sucesso."
+                )
+
+                previa = gerar_previa_importacao(
+                    df_validado=validacao[
+                        "df_validado"
+                    ],
+                    df_itens_existentes=(
+                        df_itens_excel
+                    )
+                )
+
+                p1, p2, p3, p4 = st.columns(4)
+
+                p1.metric(
+                    "Contas reconhecidas",
+                    validacao[
+                        "contas_reconhecidas"
+                    ]
+                )
+
+                p2.metric(
+                    "Células preenchidas",
+                    previa[
+                        "celulas_preenchidas"
+                    ]
+                )
+
+                p3.metric(
+                    "Alterações identificadas",
+                    previa[
+                        "alteracoes"
+                    ]
+                )
+
+                p4.metric(
+                    "Margem prevista",
+                    f'{previa["margem"]:.2f}%'
+                )
+
+                p5, p6, p7 = st.columns(3)
+
+                p5.metric(
+                    "Receitas no arquivo",
+                    _formatar_moeda(
+                        previa["receitas"]
+                    )
+                )
+
+                p6.metric(
+                    "Despesas no arquivo",
+                    _formatar_moeda(
+                        previa["despesas"]
+                    )
+                )
+
+                p7.metric(
+                    "Resultado no arquivo",
+                    _formatar_moeda(
+                        previa["resultado"]
+                    )
+                )
+
+                st.write(
+                    "#### Prévia do arquivo"
+                )
+
+                colunas_previa = (
+                    [
+                        "Conta",
+                        "Descrição"
+                    ]
+                    + COLUNAS_MESES
+                )
+
+                st.dataframe(
+                    validacao[
+                        "df_validado"
+                    ][
+                        colunas_previa
+                    ],
+                    use_container_width=True,
+                    height=450,
+                    hide_index=True
+                )
+
+                modo_importacao = st.radio(
+                    "Modo de importação",
+                    options=[
+                        "atualizar",
+                        "substituir"
+                    ],
+                    format_func=lambda valor: {
+                        "atualizar": (
+                            "Atualizar somente valores preenchidos"
+                        ),
+                        "substituir": (
+                            "Substituir orçamento inteiro"
+                        )
+                    }[valor],
+                    horizontal=True,
+                    key="modo_importacao_orcamento_excel"
+                )
+
+                if modo_importacao == "atualizar":
+                    st.info(
+                        "Células vazias não alteram valores "
+                        "já existentes. Valor 0 zera o mês."
+                    )
+
+                else:
+                    st.warning(
+                        "⚠️ Substituição integral: células vazias "
+                        "serão gravadas como zero. Essa opção só "
+                        "funciona em orçamento com status Rascunho."
+                    )
+
+                justificativa_excel = st.text_area(
+                    "Justificativa da importação",
+                    placeholder=(
+                        "Exemplo: carga do orçamento elaborado "
+                        "pela diretoria para 2026."
+                    ),
+                    key="justificativa_importacao_excel",
+                    disabled=not pode_editar
+                )
+
+                responsavel_excel = st.text_input(
+                    "Responsável pela importação",
+                    value="Administrador Master",
+                    key="responsavel_importacao_excel",
+                    disabled=not pode_editar
+                )
+
+                confirmar_importacao = st.checkbox(
+                    "Confirmo que revisei a prévia e desejo gravar "
+                    "este arquivo no orçamento selecionado.",
+                    key="confirmar_importacao_excel",
+                    disabled=not pode_editar
+                )
+
+                if st.button(
+                    "✅ Confirmar importação do Excel",
+                    key="btn_confirmar_importacao_excel",
+                    use_container_width=True,
+                    disabled=(
+                        not pode_editar
+                        or not confirmar_importacao
+                    )
+                ):
+                    try:
+                        resultado_importacao = (
+                            importar_orcamento_excel(
+                                supabase_client=(
+                                    supabase_client
+                                ),
+                                orcamento_id=(
+                                    orcamento_id
+                                ),
+                                df_validado=(
+                                    validacao[
+                                        "df_validado"
+                                    ]
+                                ),
+                                modo=(
+                                    modo_importacao
+                                ),
+                                justificativa=(
+                                    justificativa_excel
+                                ),
+                                responsavel=(
+                                    responsavel_excel
+                                ),
+                                status_orcamento=(
+                                    status_orcamento
+                                )
+                            )
+                        )
+
+                        st.session_state.pop(
+                            "grade_obz",
+                            None
+                        )
+
+                        st.session_state.pop(
+                            "grade_obz_orcamento_id",
+                            None
+                        )
+
+                        st.success(
+                            "✅ Importação concluída. "
+                            f'{resultado_importacao["registros_processados"]} '
+                            "registros foram processados."
+                        )
+
+                        st.rerun()
+
+                    except Exception as erro:
+                        st.error(
+                            "Erro ao importar orçamento: "
+                            f"{type(erro).__name__} — {erro}"
+                        )
+
+        except Exception as erro:
+            st.error(
+                "Erro ao analisar o arquivo Excel: "
+                f"{type(erro).__name__} — {erro}"
+            )
+
+    st.divider()
+
     st.write("### Grade anual do orçamento")
 
     st.caption(
