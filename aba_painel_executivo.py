@@ -8,7 +8,11 @@ from servico_controladoria import (
     calcular_margem_mensal,
     top_contas_despesa,
     top_contas_receita,
-    gerar_alertas_financeiros
+    gerar_alertas_financeiros,
+    calcular_resultado_por_centro_custo,
+    ranking_melhores_obras,
+    ranking_piores_obras,
+    calcular_resumo_obras
 )
 
 
