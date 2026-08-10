@@ -448,12 +448,16 @@ def render_aba_orcado_realizado(
             options=[
                 "todos",
                 "operacional",
-                "nao_operacional"
+                "nao_operacional",
+                "diretoria",
+                "diretoria_investimentos"
             ],
             format_func=lambda valor: {
                 "todos": "Todos",
                 "operacional": "Operacional",
-                "nao_operacional": "Não Operacional"
+                "nao_operacional": "Não Operacional",
+                "diretoria": "Diretoria",
+                "diretoria_investimentos": "Diretoria Investimentos"
             }[valor],
             horizontal=True,
             key="classificacao_orcado_realizado_v2"
