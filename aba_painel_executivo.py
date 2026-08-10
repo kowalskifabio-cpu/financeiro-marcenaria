@@ -184,3 +184,200 @@ def render_aba_painel_executivo(
                 st.info(
                     f'🔵 {alerta["titulo"]}\n\n{alerta["mensagem"]}'
                 )
+
+    st.divider()
+
+    st.subheader("🏢 Performance das CTRs")
+
+    usar_rateio_ctr = st.toggle(
+        "Considerar rateio da estrutura",
+        value=False,
+        key="usar_rateio_painel_executivo",
+        help=(
+            "Quando ativado, os custos dos centros classificados "
+            "como rateio são distribuídos proporcionalmente entre as obras."
+        )
+    )
+
+    df_movimentos_ctr = obter_movimentos_por_anos_meses(
+        [ano_sel],
+        meses_sel
+    )
+
+    if df_movimentos_ctr is None or df_movimentos_ctr.empty:
+        st.info(
+            "Não há movimentos suficientes para calcular "
+            "a performance das CTRs."
+        )
+
+    else:
+        df_rateio_ctr = carregar_logica_rateio()
+
+        df_resultado_ctr = calcular_resultado_por_centro_custo(
+            df_movimentos=df_movimentos_ctr,
+            df_rateio_config=df_rateio_ctr,
+            usar_rateio=usar_rateio_ctr
+        )
+
+        if df_resultado_ctr.empty:
+            st.info(
+                "Nenhuma CTR classificada como obra foi encontrada."
+            )
+
+        else:
+            resumo_ctr = calcular_resumo_obras(
+                df_resultado_ctr
+            )
+
+            c_ctr1, c_ctr2, c_ctr3, c_ctr4 = st.columns(4)
+
+            c_ctr1.metric(
+                "CTRs analisadas",
+                resumo_ctr["quantidade_obras"]
+            )
+
+            c_ctr2.metric(
+                "CTRs lucrativas",
+                resumo_ctr["obras_lucrativas"]
+            )
+
+            c_ctr3.metric(
+                "CTRs deficitárias",
+                resumo_ctr["obras_deficitarias"]
+            )
+
+            c_ctr4.metric(
+                "Margem da carteira",
+                f'{resumo_ctr["margem"]:.2f}%'
+            )
+
+            st.caption(
+                (
+                    "Resultado considerando custos diretos e "
+                    "rateio de estrutura."
+                    if usar_rateio_ctr
+                    else
+                    "Resultado considerando apenas os custos diretos das obras."
+                )
+            )
+
+            melhores = ranking_melhores_obras(
+                df_resultado_ctr,
+                quantidade=10
+            )
+
+            piores = ranking_piores_obras(
+                df_resultado_ctr,
+                quantidade=10
+            )
+
+            col_melhores, col_piores = st.columns(2)
+
+            with col_melhores:
+                st.write("### 🟢 Melhores CTRs")
+
+                if melhores.empty:
+                    st.info(
+                        "Nenhuma CTR disponível."
+                    )
+                else:
+                    st.dataframe(
+                        melhores[
+                            [
+                                "Centro de Custo",
+                                "Receita",
+                                "Despesa Direta",
+                                "Rateio Estrutura",
+                                "Resultado",
+                                "Margem %",
+                                "Status"
+                            ]
+                        ]
+                        .style
+                        .format({
+                            "Receita": formatar_moeda_br,
+                            "Despesa Direta": formatar_moeda_br,
+                            "Rateio Estrutura": formatar_moeda_br,
+                            "Resultado": formatar_moeda_br,
+                            "Margem %": "{:.2f}%"
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+            with col_piores:
+                st.write("### 🔴 CTRs que exigem atenção")
+
+                if piores.empty:
+                    st.info(
+                        "Nenhuma CTR disponível."
+                    )
+                else:
+                    st.dataframe(
+                        piores[
+                            [
+                                "Centro de Custo",
+                                "Receita",
+                                "Despesa Direta",
+                                "Rateio Estrutura",
+                                "Resultado",
+                                "Margem %",
+                                "Status"
+                            ]
+                        ]
+                        .style
+                        .format({
+                            "Receita": formatar_moeda_br,
+                            "Despesa Direta": formatar_moeda_br,
+                            "Rateio Estrutura": formatar_moeda_br,
+                            "Resultado": formatar_moeda_br,
+                            "Margem %": "{:.2f}%"
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+            st.write("### Semáforo das CTRs")
+
+            df_semaforo = df_resultado_ctr[
+                [
+                    "Centro de Custo",
+                    "Resultado",
+                    "Margem %",
+                    "Status"
+                ]
+            ].copy()
+
+            def estilo_semaforo(row):
+                if row["Status"] == "Crítico":
+                    return [
+                        "background-color: #fee2e2"
+                    ] * len(row)
+
+                if row["Status"] == "Atenção":
+                    return [
+                        "background-color: #fef3c7"
+                    ] * len(row)
+
+                if row["Status"] == "Saudável":
+                    return [
+                        "background-color: #dcfce7"
+                    ] * len(row)
+
+                return [""] * len(row)
+
+            st.dataframe(
+                df_semaforo
+                .style
+                .apply(
+                    estilo_semaforo,
+                    axis=1
+                )
+                .format({
+                    "Resultado": formatar_moeda_br,
+                    "Margem %": "{:.2f}%"
+                }),
+                use_container_width=True,
+                hide_index=True,
+                height=500
+            )
