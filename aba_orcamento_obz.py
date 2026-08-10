@@ -711,3 +711,178 @@ def render_aba_orcamento_obz(
             ),
             use_container_width=True
         )
+
+st.divider()
+
+    st.write("### Fluxo de aprovação")
+
+    observacao_status = st.text_area(
+        "Observação para alteração de status",
+        placeholder=(
+            "Explique o motivo da revisão, aprovação, "
+            "bloqueio ou criação de nova versão."
+        ),
+        key="observacao_status_obz"
+    )
+
+    usuario_master = (
+        st.session_state.get(
+            "admin_usuario",
+            "Administrador Master"
+        )
+    )
+
+    col_revisao, col_aprovar, col_bloquear, col_nova_versao = (
+        st.columns(4)
+    )
+
+    with col_revisao:
+        if st.button(
+            "📤 Enviar para revisão",
+            key="btn_enviar_revisao_obz",
+            use_container_width=True,
+            disabled=(
+                status_orcamento
+                not in ["rascunho"]
+            )
+        ):
+            try:
+                alterar_status_orcamento(
+                    supabase_client=supabase_client,
+                    orcamento_id=orcamento_id,
+                    novo_status="em_revisao",
+                    usuario=usuario_master,
+                    observacao=observacao_status.strip()
+                )
+
+                st.success(
+                    "Orçamento enviado para revisão."
+                )
+
+                st.session_state.pop(
+                    "grade_obz",
+                    None
+                )
+
+                st.rerun()
+
+            except Exception as erro:
+                st.error(
+                    "Erro ao enviar para revisão: "
+                    f"{type(erro).__name__} — {erro}"
+                )
+
+    with col_aprovar:
+        if st.button(
+            "✅ Aprovar",
+            key="btn_aprovar_obz",
+            use_container_width=True,
+            disabled=(
+                status_orcamento
+                != "em_revisao"
+            )
+        ):
+            try:
+                alterar_status_orcamento(
+                    supabase_client=supabase_client,
+                    orcamento_id=orcamento_id,
+                    novo_status="aprovado",
+                    usuario=usuario_master,
+                    observacao=observacao_status.strip()
+                )
+
+                st.success(
+                    "Orçamento aprovado."
+                )
+
+                st.session_state.pop(
+                    "grade_obz",
+                    None
+                )
+
+                st.rerun()
+
+            except Exception as erro:
+                st.error(
+                    "Erro ao aprovar: "
+                    f"{type(erro).__name__} — {erro}"
+                )
+
+    with col_bloquear:
+        if st.button(
+            "🔒 Bloquear",
+            key="btn_bloquear_obz",
+            use_container_width=True,
+            disabled=(
+                status_orcamento
+                != "aprovado"
+            )
+        ):
+            try:
+                alterar_status_orcamento(
+                    supabase_client=supabase_client,
+                    orcamento_id=orcamento_id,
+                    novo_status="bloqueado",
+                    usuario=usuario_master,
+                    observacao=observacao_status.strip()
+                )
+
+                st.success(
+                    "Orçamento bloqueado."
+                )
+
+                st.session_state.pop(
+                    "grade_obz",
+                    None
+                )
+
+                st.rerun()
+
+            except Exception as erro:
+                st.error(
+                    "Erro ao bloquear: "
+                    f"{type(erro).__name__} — {erro}"
+                )
+
+    with col_nova_versao:
+        if st.button(
+            "🧾 Criar nova versão",
+            key="btn_nova_versao_obz",
+            use_container_width=True,
+            disabled=(
+                status_orcamento
+                not in ["aprovado", "bloqueado"]
+            )
+        ):
+            try:
+                novo_id, nova_versao = (
+                    criar_nova_versao_orcamento(
+                        supabase_client=supabase_client,
+                        orcamento_id_origem=orcamento_id,
+                        usuario=usuario_master,
+                        observacao=observacao_status.strip()
+                    )
+                )
+
+                st.session_state.pop(
+                    "grade_obz",
+                    None
+                )
+
+                st.session_state.pop(
+                    "grade_obz_orcamento_id",
+                    None
+                )
+
+                st.success(
+                    "Nova versão criada com sucesso. "
+                    f"Versão {nova_versao}."
+                )
+
+                st.rerun()
+
+            except Exception as erro:
+                st.error(
+                    "Erro ao criar nova versão: "
+                    f"{type(erro).__name__} — {erro}"
+                )
