@@ -546,3 +546,295 @@ def montar_contexto_diretoria(
         ),
         "alertas": alertas
     }
+def calcular_resultado_por_centro_custo(
+    df_movimentos,
+    df_rateio_config=None,
+    usar_rateio=False
+):
+    """
+    Calcula receita, despesa, resultado e margem
+    por Centro de Custo.
+
+    Se usar_rateio=True:
+    distribui os centros classificados como 'rateio'
+    proporcionalmente às despesas diretas das obras.
+
+    Centros classificados como 'fora' não entram
+    no ranking de obras.
+    """
+
+    if (
+        df_movimentos is None
+        or df_movimentos.empty
+    ):
+        return pd.DataFrame()
+
+    df = df_movimentos.copy()
+
+    df["Conta_ID"] = (
+        df["Conta_ID"]
+        .astype(str)
+        .str.strip()
+    )
+
+    df["Centro de Custo"] = (
+        df["Centro de Custo"]
+        .astype(str)
+        .str.strip()
+    )
+
+    df["Valor_Final"] = pd.to_numeric(
+        df["Valor_Final"],
+        errors="coerce"
+    ).fillna(0.0)
+
+    resultado = (
+        df
+        .groupby("Centro de Custo")
+        .apply(
+            lambda grupo: pd.Series({
+                "Receita": grupo[
+                    grupo["Conta_ID"]
+                    .astype(str)
+                    .str.startswith("01")
+                ]["Valor_Final"].sum(),
+
+                "Despesa Direta": grupo[
+                    grupo["Conta_ID"]
+                    .astype(str)
+                    .str.startswith("02")
+                ]["Valor_Final"].sum()
+            })
+        )
+        .reset_index()
+    )
+
+    resultado["Logica"] = "obra"
+
+    if (
+        df_rateio_config is not None
+        and not df_rateio_config.empty
+    ):
+        config = df_rateio_config.copy()
+
+        config["Centro de Custo"] = (
+            config["Centro de Custo"]
+            .astype(str)
+            .str.strip()
+        )
+
+        config["Logica"] = (
+            config["Logica"]
+            .astype(str)
+            .str.lower()
+            .str.strip()
+        )
+
+        mapa_logica = dict(
+            zip(
+                config["Centro de Custo"],
+                config["Logica"]
+            )
+        )
+
+        resultado["Logica"] = (
+            resultado["Centro de Custo"]
+            .map(mapa_logica)
+            .fillna("obra")
+        )
+
+    resultado["Rateio Estrutura"] = 0.0
+
+    if usar_rateio:
+        bolo_rateio = resultado.loc[
+            resultado["Logica"] == "rateio",
+            "Despesa Direta"
+        ].sum()
+
+        idx_obras = (
+            (resultado["Logica"] == "obra")
+            &
+            (resultado["Despesa Direta"] != 0)
+        )
+
+        total_base_rateio = resultado.loc[
+            idx_obras,
+            "Despesa Direta"
+        ].sum()
+
+        if abs(total_base_rateio) > 0:
+            resultado.loc[
+                idx_obras,
+                "Rateio Estrutura"
+            ] = (
+                resultado.loc[
+                    idx_obras,
+                    "Despesa Direta"
+                ]
+                /
+                total_base_rateio
+                *
+                bolo_rateio
+            )
+
+    # Ranking contém somente obras.
+    resultado = resultado[
+        resultado["Logica"] == "obra"
+    ].copy()
+
+    resultado["Resultado"] = (
+        resultado["Receita"]
+        + resultado["Despesa Direta"]
+        + resultado["Rateio Estrutura"]
+    )
+
+    resultado["Margem %"] = resultado.apply(
+        lambda row: (
+            row["Resultado"]
+            / row["Receita"]
+            * 100
+            if row["Receita"] != 0
+            else 0.0
+        ),
+        axis=1
+    )
+
+    resultado["Status"] = resultado.apply(
+        lambda row: (
+            "Crítico"
+            if row["Resultado"] < 0
+            else (
+                "Atenção"
+                if row["Margem %"] < 10
+                else "Saudável"
+            )
+        ),
+        axis=1
+    )
+
+    return resultado.sort_values(
+        by="Resultado",
+        ascending=False
+    ).reset_index(drop=True)
+
+
+def ranking_melhores_obras(
+    df_resultado_obras,
+    quantidade=10
+):
+    """
+    Obras com maior resultado financeiro.
+    """
+
+    if (
+        df_resultado_obras is None
+        or df_resultado_obras.empty
+    ):
+        return pd.DataFrame()
+
+    return (
+        df_resultado_obras
+        .sort_values(
+            "Resultado",
+            ascending=False
+        )
+        .head(quantidade)
+        .copy()
+    )
+
+
+def ranking_piores_obras(
+    df_resultado_obras,
+    quantidade=10
+):
+    """
+    Obras com menor resultado financeiro.
+    """
+
+    if (
+        df_resultado_obras is None
+        or df_resultado_obras.empty
+    ):
+        return pd.DataFrame()
+
+    return (
+        df_resultado_obras
+        .sort_values(
+            "Resultado",
+            ascending=True
+        )
+        .head(quantidade)
+        .copy()
+    )
+
+
+def calcular_resumo_obras(
+    df_resultado_obras
+):
+    """
+    Indicadores executivos da carteira de obras.
+    """
+
+    if (
+        df_resultado_obras is None
+        or df_resultado_obras.empty
+    ):
+        return {
+            "quantidade_obras": 0,
+            "obras_lucrativas": 0,
+            "obras_deficitarias": 0,
+            "receita": 0.0,
+            "resultado": 0.0,
+            "margem": 0.0
+        }
+
+    quantidade = len(
+        df_resultado_obras
+    )
+
+    lucrativas = len(
+        df_resultado_obras[
+            df_resultado_obras["Resultado"] > 0
+        ]
+    )
+
+    deficitarias = len(
+        df_resultado_obras[
+            df_resultado_obras["Resultado"] < 0
+        ]
+    )
+
+    receita = (
+        df_resultado_obras["Receita"].sum()
+    )
+
+    resultado = (
+        df_resultado_obras["Resultado"].sum()
+    )
+
+    margem = (
+        resultado / receita * 100
+        if receita != 0
+        else 0.0
+    )
+
+    return {
+        "quantidade_obras": int(
+            quantidade
+        ),
+        "obras_lucrativas": int(
+            lucrativas
+        ),
+        "obras_deficitarias": int(
+            deficitarias
+        ),
+        "receita": float(
+            receita
+        ),
+        "resultado": float(
+            resultado
+        ),
+        "margem": float(
+            margem
+        )
+    }
