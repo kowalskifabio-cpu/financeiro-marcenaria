@@ -463,13 +463,18 @@ def alterar_status_orcamento(
             timezone.utc
         ).isoformat()
 
-    (
+    resposta = (
         supabase_client
         .table("orcamentos")
         .update(dados_atualizacao)
         .eq("id", int(orcamento_id))
         .execute()
     )
+    
+    if not resposta.data:
+        raise Exception(
+            f"Nenhum orçamento foi atualizado. ID recebido: {orcamento_id}"
+        )
 
     mapa_acao = {
         "em_revisao": "enviado_revisao",
