@@ -31,148 +31,95 @@ st.set_page_config(
 # AUTENTICAÇÃO DO ADMINISTRADOR
 # =========================
 def autenticar_administrador():
-    """
-    Impede o carregamento do sistema enquanto o administrador
-    não informar usuário e senha válidos.
-    """
 
-    if "admin_autenticado" not in st.session_state:
-        st.session_state["admin_autenticado"] = False
-
-    if "admin_usuario" not in st.session_state:
-        st.session_state["admin_usuario"] = ""
-
-    # ---------------------------------------------------------
-    # USUÁRIO JÁ AUTENTICADO
-    # ---------------------------------------------------------
-    if st.session_state["admin_autenticado"]:
-
-        st.sidebar.success(
-            f"🔐 Administrador: "
-            f"{st.session_state['admin_usuario']}"
-        )
-
-        if st.sidebar.button(
-            "🚪 Sair do sistema",
-            key="btn_logout_admin",
-            use_container_width=True
-        ):
-            st.session_state["admin_autenticado"] = False
-            st.session_state["admin_usuario"] = ""
-
-            st.rerun()
-
+    # Se já estiver autenticado, não mostra login novamente
+    if st.session_state.get("admin_autenticado", False):
         return
 
-        # ---------------------------------------------------------
-        # CARREGA CREDENCIAIS COM FALLBACK
-        # ---------------------------------------------------------
+    # ---------------------------------------------------------
+    # CARREGA AS CREDENCIAIS
+    # ---------------------------------------------------------
+    usuario_correto = ""
+    senha_correta = ""
+
+    # Configuração principal:
+    # [credentials]
+    # master_user = "admin"
+    # master_password = "senha"
+    try:
+        credentials = st.secrets.get("credentials", {})
+
+        usuario_correto = str(
+            credentials.get("master_user", "")
+        ).strip()
+
+        senha_correta = str(
+            credentials.get("master_password", "")
+        )
+
+    except Exception:
         usuario_correto = ""
         senha_correta = ""
-    
+
+    # ---------------------------------------------------------
+    # FALLBACK PARA SECRETS ANTIGOS
+    # ---------------------------------------------------------
+    if not usuario_correto:
         try:
-            if "credentials" in st.secrets:
-                usuario_correto = str(
-                    st.secrets["credentials"].get(
-                        "master_user",
-                        ""
-                    )
-                ).strip()
-    
-                senha_correta = str(
-                    st.secrets["credentials"].get(
-                        "master_password",
-                        ""
-                    )
+            usuario_correto = str(
+                st.secrets.get(
+                    "MASTER_USER",
+                    "admin"
                 )
+            ).strip()
         except Exception:
-            pass
-    
-        # Fallback para configuração antiga
-        if not usuario_correto:
-            try:
-                usuario_correto = str(
-                    st.secrets.get(
-                        "MASTER_USER",
-                        "administrador"
-                    )
-                ).strip()
-            except Exception:
-                usuario_correto = "administrador"
-    
-        if not senha_correta:
-            try:
-                senha_correta = str(
-                    st.secrets.get(
-                        "MASTER_PASSWORD",
-                        ""
-                    )
+            usuario_correto = "admin"
+
+    if not senha_correta:
+        try:
+            senha_correta = str(
+                st.secrets.get(
+                    "MASTER_PASSWORD",
+                    ""
                 )
-            except Exception:
-                senha_correta = ""
-    
-        if not senha_correta:
-            st.error(
-                "❌ Nenhuma senha de administrador foi encontrada "
-                "nos Secrets do Streamlit."
             )
-    
-            st.code(
-                """
-    Opção 1:
-    
-    [credentials]
-    master_user = "administrador"
-    master_password = "sua_senha"
-    
-    OU
-    
-    Opção 2:
-    
-    MASTER_PASSWORD = "sua_senha"
-                """,
-                language="toml"
-            )
-    
-            st.stop()
+        except Exception:
+            senha_correta = ""
+
+    # ---------------------------------------------------------
+    # SE NÃO EXISTIR SENHA CONFIGURADA
+    # ---------------------------------------------------------
+    if not senha_correta:
+        st.error(
+            "❌ A senha do Administrador Master não está "
+            "configurada nos Secrets do Streamlit."
+        )
+
+        st.code(
+            '''
+[credentials]
+master_user = "admin"
+master_password = "SUA_SENHA"
+            ''',
+            language="toml"
+        )
+
+        st.stop()
 
     # ---------------------------------------------------------
     # TELA DE LOGIN
     # ---------------------------------------------------------
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stForm"] {
-            max-width: 460px;
-            margin: 40px auto;
-            padding: 28px;
-            border: 1px solid #d1d5db;
-            border-radius: 12px;
-            background-color: white;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
-        }
+    st.markdown("## 🔐 Acesso ao Gestor Financeiro")
 
-        div[data-testid="stForm"] h2 {
-            text-align: center;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    with st.form("form_login_master"):
 
-    with st.form("form_login_administrador"):
-        st.markdown("## 🔐 Acesso Administrativo")
-        st.caption("Sistema Financeiro — Status Marcenaria")
-
-        usuario_informado = st.text_input(
-            "Usuário",
-            placeholder="Informe o usuário administrador"
+        usuario_digitado = st.text_input(
+            "Usuário"
         )
 
-        senha_informada = st.text_input(
+        senha_digitada = st.text_input(
             "Senha",
-            type="password",
-            placeholder="Informe a senha"
+            type="password"
         )
 
         entrar = st.form_submit_button(
@@ -180,31 +127,31 @@ def autenticar_administrador():
             use_container_width=True
         )
 
+    # ---------------------------------------------------------
+    # VALIDA LOGIN
+    # ---------------------------------------------------------
     if entrar:
-        usuario_valido = hmac.compare_digest(
-            usuario_informado.strip(),
-            usuario_correto
-        )
 
-        senha_valida = hmac.compare_digest(
-            senha_informada,
-            senha_correta
-        )
+        usuario_digitado = str(
+            usuario_digitado
+        ).strip()
 
-        if usuario_valido and senha_valida:
+        if (
+            usuario_digitado == usuario_correto
+            and senha_digitada == senha_correta
+        ):
             st.session_state["admin_autenticado"] = True
-            st.session_state["admin_usuario"] = usuario_informado.strip()
+            st.session_state["usuario_logado"] = usuario_correto
 
             st.rerun()
 
         else:
-            st.error("❌ Usuário ou senha incorretos.")
+            st.error(
+                "❌ Usuário ou senha inválidos."
+            )
 
-    # Interrompe o restante do app enquanto não houver login
+    # Impede carregamento do sistema antes do login
     st.stop()
-
-
-# Executa a proteção antes de carregar Supabase e relatórios
 autenticar_administrador()
 
 
