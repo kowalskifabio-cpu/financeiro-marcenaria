@@ -775,9 +775,17 @@ def render_aba_orcado_realizado(
         )
 
         comparativo_visual = comparativo_forecast[
-            comparativo_forecast[
-                "Nivel"
-            ].isin(niveis_sel)
+            (
+                comparativo_forecast[
+                    "Nivel"
+                ].isin(niveis_efetivos)
+                |
+                (
+                    comparativo_forecast[
+                        "Nivel"
+                    ] == 1
+                )
+            )
         ].copy()
 
         if ocultar_zerados:
