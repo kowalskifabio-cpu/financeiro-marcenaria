@@ -717,7 +717,7 @@ aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8, aba9, aba10, aba11, aba12, aba13
     "⚠️ Alertas", "📉 Curva ABC", "🤖 Analista IA", "🧾 Composição da Obra",
     "⚙️ Configurações",
     "📊 Resultado Operacional",
-    "💰 Orçamento"
+    "💰 Orçamento",
     "📊 Orçado x Realizado"
 ])
 
