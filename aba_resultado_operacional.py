@@ -1,4 +1,5 @@
 import io
+
 import pandas as pd
 import streamlit as st
 
@@ -14,11 +15,24 @@ def render_aba_resultado_operacional(
     filtrar_linhas_zeradas,
     formatar_moeda_br
 ):
-    st.subheader("📊 Resultado Operacional / Não Operacional")
+    st.subheader("📊 Resultado por Classificação")
 
     filtro_classificacao = st.radio(
         "Escolha a visão",
-        ["operacional", "nao_operacional", "todos"],
+        [
+            "operacional",
+            "nao_operacional",
+            "diretoria",
+            "diretoria_investimentos",
+            "todos"
+        ],
+        format_func=lambda valor: {
+            "operacional": "Operacional",
+            "nao_operacional": "Não Operacional",
+            "diretoria": "Diretoria",
+            "diretoria_investimentos": "Diretoria Investimentos",
+            "todos": "Todos"
+        }[valor],
         horizontal=True
     )
 
@@ -51,7 +65,10 @@ def render_aba_resultado_operacional(
     mapa_class = dict(zip(df_base["Conta"], df_base["Classificacao"]))
 
     df_mov["Conta_ID"] = df_mov["Conta_ID"].astype(str).str.strip()
-    df_mov["Valor_Final"] = pd.to_numeric(df_mov["Valor_Final"], errors="coerce").fillna(0.0)
+    df_mov["Valor_Final"] = pd.to_numeric(
+        df_mov["Valor_Final"],
+        errors="coerce"
+    ).fillna(0.0)
 
     def classificar_movimento(conta):
         conta = str(conta).strip()
@@ -71,23 +88,28 @@ def render_aba_resultado_operacional(
     df_mov["Classificacao"] = df_mov["Conta_ID"].apply(classificar_movimento)
 
     if filtro_classificacao != "todos":
-        df_mov = df_mov[df_mov["Classificacao"] == filtro_classificacao].copy()
+        df_mov = df_mov[
+            df_mov["Classificacao"] == filtro_classificacao
+        ].copy()
 
     if "Todos" not in cc_sel and cc_sel:
-        df_mov = df_mov[df_mov["Centro de Custo"].isin(cc_sel)].copy()
+        df_mov = df_mov[
+            df_mov["Centro de Custo"].isin(cc_sel)
+        ].copy()
 
     for mes in meses_sel:
         df_base[mes] = 0.0
 
     for mes in meses_sel:
         mes_num = int(MAPA_MESES[mes])
-        df_m = df_mov[df_mov["Mes"].astype(int) == mes_num].copy()
+        df_m = df_mov[
+            df_mov["Mes"].astype(int) == mes_num
+        ].copy()
 
         if df_m.empty:
             continue
 
         mapa_valores = df_m.groupby("Conta_ID")["Valor_Final"].sum().to_dict()
-
         df_base[mes] = df_base["Conta"].map(mapa_valores).fillna(0.0)
 
         for n in sorted(df_base["Nivel"].dropna().unique(), reverse=True):
@@ -99,17 +121,15 @@ def render_aba_resultado_operacional(
             for idx, row in df_base[df_base["Nivel"] == nivel_pai].iterrows():
                 pref = str(row["Conta"]).strip() + "."
                 filhos = df_base[
-                    (df_base["Nivel"] == n) &
-                    (df_base["Conta"].astype(str).str.startswith(pref))
+                    (df_base["Nivel"] == n)
+                    & (df_base["Conta"].astype(str).str.startswith(pref))
                 ]
-                
+
                 total_filhos = filhos[mes].sum()
-                
-                # Só substitui a conta pai se os filhos tiverem movimento.
-                # Se os filhos existem mas estão zerados, preserva lançamento direto da conta pai.
+
                 if total_filhos != 0:
                     df_base.at[idx, mes] = total_filhos
-                    
+
         for idx, _ in df_base[df_base["Nivel"] == 1].iterrows():
             df_base.at[idx, mes] = df_base[df_base["Nivel"] == 2][mes].sum()
 
@@ -121,15 +141,26 @@ def render_aba_resultado_operacional(
 
     df_visual = df_base[df_base["Nivel"].isin(niveis_sel)].copy()
 
-    cols_export = ["Nivel", "Conta", "Descrição", "Classificacao"] + meses_sel + ["MÉDIA", "ACUMULADO"]
+    cols_export = [
+        "Nivel",
+        "Conta",
+        "Descrição",
+        "Classificacao"
+    ] + meses_sel + ["MÉDIA", "ACUMULADO"]
 
     def style_rows(row):
         if row["Nivel"] == 1:
-            return ["background-color: #334155; color: white; font-weight: bold"] * len(row)
+            return [
+                "background-color: #334155; color: white; font-weight: bold"
+            ] * len(row)
         if row["Nivel"] == 2:
-            return ["background-color: #cbd5e1; font-weight: bold; color: black"] * len(row)
+            return [
+                "background-color: #cbd5e1; font-weight: bold; color: black"
+            ] * len(row)
         if row["Nivel"] == 3:
-            return ["background-color: #D1EAFF; font-weight: bold; color: black"] * len(row)
+            return [
+                "background-color: #D1EAFF; font-weight: bold; color: black"
+            ] * len(row)
         return [""] * len(row)
 
     st.dataframe(
@@ -139,22 +170,24 @@ def render_aba_resultado_operacional(
         .format({
             c: formatar_moeda_br
             for c in cols_export
-            if c not in ["Nivel", "Conta", "Descrição", "Classificacao"]
+            if c not in [
+                "Nivel",
+                "Conta",
+                "Descrição",
+                "Classificacao"
+            ]
         }),
         use_container_width=True,
         height=800
     )
-    
-    # ==========================================================
-    # EXPORTAÇÃO PARA EXCEL
-    # ==========================================================
 
-    if filtro_classificacao == "operacional":
-        nome_tipo = "Operacional"
-    elif filtro_classificacao == "nao_operacional":
-        nome_tipo = "Nao_Operacional"
-    else:
-        nome_tipo = "Todos"
+    nome_tipo = {
+        "operacional": "Operacional",
+        "nao_operacional": "Nao_Operacional",
+        "diretoria": "Diretoria",
+        "diretoria_investimentos": "Diretoria_Investimentos",
+        "todos": "Todos"
+    }[filtro_classificacao]
 
     if "Todos" in cc_sel or len(cc_sel) == 0:
         sufixo = ""
@@ -164,58 +197,36 @@ def render_aba_resultado_operacional(
     else:
         sufixo = "_Filtrado"
 
-    nome_arquivo = (
-        f"Resultado_Operacional_{nome_tipo}_{ano_sel}{sufixo}.xlsx"
-    )
+    nome_arquivo = f"Resultado_{nome_tipo}_{ano_sel}{sufixo}.xlsx"
 
     buffer = io.BytesIO()
 
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-
         df_export = df_visual[cols_export].copy()
-
         df_export.to_excel(
             writer,
             index=False,
-            sheet_name="Resultado Operacional"
+            sheet_name="Resultado"
         )
 
-        ws = writer.sheets["Resultado Operacional"]
-
-        #
-        # Congela o cabeçalho
-        #
+        ws = writer.sheets["Resultado"]
         ws.freeze_panes = "A2"
-
-        #
-        # Liga o filtro do Excel
-        #
         ws.auto_filter.ref = ws.dimensions
 
-        #
-        # Ajusta largura automática das colunas
-        #
         for coluna in ws.columns:
-
             tamanho = 0
-
             letra = coluna[0].column_letter
 
             for celula in coluna:
-
                 try:
-                    tamanho = max(
-                        tamanho,
-                        len(str(celula.value))
-                    )
-
-                except:
+                    tamanho = max(tamanho, len(str(celula.value)))
+                except Exception:
                     pass
 
             ws.column_dimensions[letra].width = min(tamanho + 3, 40)
 
     st.download_button(
-        "📥 Exportar Resultado Operacional (Excel)",
+        "📥 Exportar Resultado (Excel)",
         data=buffer.getvalue(),
         file_name=nome_arquivo,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
