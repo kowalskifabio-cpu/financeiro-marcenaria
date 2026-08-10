@@ -176,17 +176,124 @@ def _filtrar_classificacao(
     df,
     filtro_classificacao
 ):
-    if filtro_classificacao == "todos":
+    """
+    Filtra pelas contas finais da classificação escolhida e
+    reconstrói toda a hierarquia: pais, avós e resultado.
+
+    Assim uma visão Diretoria, por exemplo, não mistura
+    valores Operacionais nos totais das contas-mãe.
+    """
+
+    if df is None or df.empty:
         return df
 
-    return df[
-        df["Classificacao"]
+    if filtro_classificacao == "todos":
+        return df.copy()
+
+    resultado = df.copy()
+
+    resultado["Conta"] = (
+        resultado["Conta"]
+        .astype(str)
+        .str.strip()
+    )
+
+    resultado["Classificacao"] = (
+        resultado["Classificacao"]
         .fillna("operacional")
         .astype(str)
         .str.lower()
         .str.strip()
-        == filtro_classificacao
-    ].copy()
+    )
+
+    contas = resultado["Conta"].tolist()
+
+    def eh_folha(conta):
+        prefixo = str(conta).strip() + "."
+
+        return not any(
+            str(outra).startswith(prefixo)
+            for outra in contas
+            if str(outra) != str(conta)
+        )
+
+    resultado["_EhFolha"] = (
+        resultado["Conta"]
+        .apply(eh_folha)
+    )
+
+    colunas_valores = [
+        coluna
+        for coluna in [
+            "Orçado",
+            "Realizado",
+            "Forecast"
+        ]
+        if coluna in resultado.columns
+    ]
+
+    # Mantém valores somente nas folhas pertencentes
+    # à classificação selecionada.
+    manter_valor = (
+        resultado["_EhFolha"]
+        &
+        (
+            resultado["Classificacao"]
+            == filtro_classificacao
+        )
+    )
+
+    for coluna in colunas_valores:
+        resultado[coluna] = pd.to_numeric(
+            resultado[coluna],
+            errors="coerce"
+        ).fillna(0.0)
+
+        resultado.loc[
+            ~manter_valor,
+            coluna
+        ] = 0.0
+
+    # Recalcula novamente toda a árvore.
+    resultado = consolidar_hierarquia(
+        resultado,
+        colunas_valores
+    )
+
+    # Recalcula desvios depois da consolidação.
+    resultado["Desvio R$"] = (
+        resultado["Realizado"]
+        - resultado["Orçado"]
+    )
+
+    resultado["Desvio %"] = 0.0
+
+    mask_orcado = (
+        resultado["Orçado"] != 0
+    )
+
+    resultado.loc[
+        mask_orcado,
+        "Desvio %"
+    ] = (
+        resultado.loc[
+            mask_orcado,
+            "Desvio R$"
+        ]
+        /
+        resultado.loc[
+            mask_orcado,
+            "Orçado"
+        ].abs()
+        * 100
+    )
+
+    resultado = resultado.drop(
+        columns=["_EhFolha"],
+        errors="ignore"
+    )
+
+    return resultado
 
 
 def _calcular_resumo_executivo(df):
