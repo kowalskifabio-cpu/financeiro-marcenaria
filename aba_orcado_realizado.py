@@ -632,6 +632,10 @@ def render_aba_orcado_realizado(
                 (
                     comparativo["Realizado"] != 0
                 )
+                |
+                (
+                    comparativo["Nivel"] == 1
+                )
             ].copy()
 
         comparativo = comparativo[
