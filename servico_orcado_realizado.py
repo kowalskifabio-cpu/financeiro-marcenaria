@@ -186,19 +186,27 @@ def consolidar_hierarquia(
     colunas_valores
 ):
     """
-    Consolida os níveis inferiores nos respectivos pais.
+    Consolida a hierarquia do plano de contas.
 
-    O cálculo ocorre de baixo para cima.
+    Regras:
+    - Nível 4 consolida no nível 3
+    - Nível 3 consolida no nível 2
+    - Nível 1 representa o RESULTADO
+    - O RESULTADO é a soma das contas de nível 2
     """
 
     df = df_base.copy()
 
-    niveis = sorted(
-        df["Nivel"]
-        .dropna()
-        .unique(),
-        reverse=True
+    df["Conta"] = (
+        df["Conta"]
+        .astype(str)
+        .str.strip()
     )
+
+    df["Nivel"] = pd.to_numeric(
+        df["Nivel"],
+        errors="coerce"
+    ).fillna(0).astype(int)
 
     for coluna in colunas_valores:
         df[coluna] = pd.to_numeric(
@@ -206,50 +214,89 @@ def consolidar_hierarquia(
             errors="coerce"
         ).fillna(0.0)
 
-    for nivel in niveis:
-        if nivel <= 1:
+    # =====================================================
+    # NÍVEL 4 -> NÍVEL 3
+    # =====================================================
+    for idx, row in df[
+        df["Nivel"] == 3
+    ].iterrows():
+
+        prefixo = (
+            str(row["Conta"]).strip()
+            + "."
+        )
+
+        filhos = df[
+            (df["Nivel"] == 4)
+            &
+            (
+                df["Conta"]
+                .astype(str)
+                .str.startswith(prefixo)
+            )
+        ]
+
+        if filhos.empty:
             continue
 
-        nivel_pai = nivel - 1
-
-        for idx, row in df[
-            df["Nivel"] == nivel_pai
-        ].iterrows():
-
-            prefixo = (
-                str(row["Conta"]).strip()
-                + "."
+        for coluna in colunas_valores:
+            df.at[idx, coluna] = (
+                filhos[coluna].sum()
             )
 
-            filhos = df[
-                (df["Nivel"] == nivel)
-                &
-                (
-                    df["Conta"]
-                    .astype(str)
-                    .str.startswith(prefixo)
-                )
-            ]
+    # =====================================================
+    # NÍVEL 3 -> NÍVEL 2
+    # =====================================================
+    for idx, row in df[
+        df["Nivel"] == 2
+    ].iterrows():
 
-            if filhos.empty:
-                continue
+        prefixo = (
+            str(row["Conta"]).strip()
+            + "."
+        )
 
-            for coluna in colunas_valores:
-                total_filhos = (
-                    filhos[coluna].sum()
-                )
+        filhos = df[
+            (df["Nivel"] == 3)
+            &
+            (
+                df["Conta"]
+                .astype(str)
+                .str.startswith(prefixo)
+            )
+        ]
 
-                valor_direto_pai = (
-                    df.at[idx, coluna]
-                )
+        if filhos.empty:
+            continue
 
-                df.at[idx, coluna] = (
-                    valor_direto_pai
-                    + total_filhos
-                )
+        for coluna in colunas_valores:
+            df.at[idx, coluna] = (
+                filhos[coluna].sum()
+            )
+
+    # =====================================================
+    # NÍVEL 1 -> RESULTADO
+    # =====================================================
+    # As despesas já são negativas.
+    # Portanto:
+    #
+    # RECEITAS + DESPESAS = RESULTADO
+    # =====================================================
+
+    df_nivel_2 = df[
+        df["Nivel"] == 2
+    ].copy()
+
+    for idx, _ in df[
+        df["Nivel"] == 1
+    ].iterrows():
+
+        for coluna in colunas_valores:
+            df.at[idx, coluna] = (
+                df_nivel_2[coluna].sum()
+            )
 
     return df
-
 
 def montar_comparativo_gerencial(
     df_plano,
