@@ -304,9 +304,146 @@ def render_aba_resultado_operacional(
         use_container_width=True,
         hide_index=True
     )
+    
+    # ==========================================================
+    # EXPORTAÇÃO EXCLUSIVA DO RESUMO POR CLASSIFICAÇÃO
+    # ==========================================================
+
+    buffer_resumo = io.BytesIO()
+
+    with pd.ExcelWriter(
+        buffer_resumo,
+        engine="openpyxl"
+    ) as writer:
+
+        df_resumo.to_excel(
+            writer,
+            index=False,
+            sheet_name="Resumo por Classificacao"
+        )
+
+        ws_resumo = writer.sheets[
+            "Resumo por Classificacao"
+        ]
+
+        # Cores
+        cor_escura = "334155"
+        cor_azul_claro = "D1EAFF"
+        cor_cabecalho = "E2E8F0"
+        cor_branca = "FFFFFF"
+
+        borda_fina = Side(
+            style="thin",
+            color="D1D5DB"
+        )
+
+        # Cabeçalho
+        for cell in ws_resumo[1]:
+            cell.fill = PatternFill(
+                "solid",
+                fgColor=cor_cabecalho
+            )
+
+            cell.font = Font(
+                bold=True
+            )
+
+            cell.alignment = Alignment(
+                horizontal="center"
+            )
+
+            cell.border = Border(
+                bottom=borda_fina
+            )
+
+        # Linhas do resumo
+        for row in range(
+            2,
+            ws_resumo.max_row + 1
+        ):
+
+            descricao = ws_resumo.cell(
+                row=row,
+                column=1
+            ).value
+
+            if descricao == "Total":
+
+                fill = PatternFill(
+                    "solid",
+                    fgColor=cor_escura
+                )
+
+                font = Font(
+                    bold=True,
+                    color=cor_branca
+                )
+
+            else:
+
+                fill = PatternFill(
+                    "solid",
+                    fgColor=cor_azul_claro
+                )
+
+                font = Font(
+                    color="000000"
+                )
+
+            for col in range(
+                1,
+                ws_resumo.max_column + 1
+            ):
+
+                cell = ws_resumo.cell(
+                    row=row,
+                    column=col
+                )
+
+                cell.fill = fill
+                cell.font = font
+
+                if col > 1:
+                    cell.number_format = (
+                        'R$ #,##0.00;'
+                        '[Red]-R$ #,##0.00'
+                    )
+
+        # Congela primeira coluna e cabeçalho
+        ws_resumo.freeze_panes = "B2"
+
+        # Filtro
+        ws_resumo.auto_filter.ref = (
+            ws_resumo.dimensions
+        )
+
+        # Largura das colunas
+        ws_resumo.column_dimensions[
+            "A"
+        ].width = 28
+
+        for col in range(
+            2,
+            ws_resumo.max_column + 1
+        ):
+            ws_resumo.column_dimensions[
+                get_column_letter(col)
+            ].width = 16
+
+    st.download_button(
+        "📥 Exportar Resumo por Classificação (Excel)",
+        data=buffer_resumo.getvalue(),
+        file_name=f"Resumo_Classificacao_{ano_sel}.xlsx",
+        mime=(
+            "application/"
+            "vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        key="download_resumo_classificacao"
+    )
 
     st.divider()
-
+  
     # ==========================================================
     # 8. A PARTIR DAQUI:
     # O FILTRO DE CLASSIFICAÇÃO AFETA SOMENTE O RELATÓRIO
