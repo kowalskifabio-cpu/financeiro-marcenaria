@@ -127,7 +127,7 @@ def render_aba_resultado_operacional(
             if pai in mapa_class:
                 return mapa_class[pai]
 
-        return "operacional"
+        return "fora_resultado"
 
     df_mov["Classificacao"] = (
         df_mov["Conta_ID"]
