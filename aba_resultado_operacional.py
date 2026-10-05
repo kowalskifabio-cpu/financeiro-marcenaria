@@ -535,10 +535,18 @@ def render_aba_resultado_operacional(
                 )
 
                 if total_filhos != 0:
+                    valor_direto_pai = df_base.at[
+                        idx,
+                        mes
+                    ]
+
                     df_base.at[
                         idx,
                         mes
-                    ] = total_filhos
+                    ] = (
+                        valor_direto_pai
+                        + total_filhos
+                    )
 
         # ------------------------------------------------------
         # RESULTADO NÍVEL 1
