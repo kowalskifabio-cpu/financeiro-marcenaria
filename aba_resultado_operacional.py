@@ -154,41 +154,33 @@ def render_aba_resultado_operacional(
     # SEMPRE MOSTRA AS QUATRO CLASSIFICAÇÕES + TOTAL.
     # ==========================================================
 
-    classificacoes_resumo = [
-        ("operacional", "Operacional"),
-        ("nao_operacional", "Não Operacional"),
-        ("diretoria", "Diretoria"),
-        (
-            "diretoria_investimentos",
-            "Diretoria Investimentos"
-        )
-    ]
+    # Estrutura hierárquica do resumo:
+    # Operacional
+    # Não Operacional
+    # Diretoria = Diretoria Gastos + Diretoria Investimentos
+    #     Diretoria Gastos
+    #     Diretoria Investimentos
+    # Total = Operacional + Não Operacional + Diretoria
 
-    linhas_resumo = []
+    def montar_linha_resumo(codigos, descricao):
+        linha = {"Descrição": descricao}
 
-    for codigo, descricao in classificacoes_resumo:
-
-        linha = {
-            "Descrição": descricao
-        }
+        if isinstance(codigos, str):
+            codigos = [codigos]
 
         df_class = df_mov[
-            df_mov["Classificacao"] == codigo
+            df_mov["Classificacao"].isin(codigos)
         ].copy()
 
         for mes in meses_sel:
-
-            mes_num = int(
-                MAPA_MESES[mes]
-            )
+            mes_num = int(MAPA_MESES[mes])
 
             if df_class.empty:
                 valor_mes = 0.0
             else:
                 valor_mes = (
                     df_class[
-                        df_class["Mes"].astype(int)
-                        == mes_num
+                        df_class["Mes"].astype(int) == mes_num
                     ]["Valor_Final"]
                     .sum()
                 )
@@ -196,58 +188,91 @@ def render_aba_resultado_operacional(
             linha[mes] = float(valor_mes)
 
         linha["ACUMULADO"] = sum(
-            linha[mes]
-            for mes in meses_sel
+            linha[mes] for mes in meses_sel
         )
 
-        if meses_sel:
-            linha["MÉDIA"] = (
-                linha["ACUMULADO"]
-                / len(meses_sel)
-            )
-        else:
-            linha["MÉDIA"] = 0.0
+        linha["MÉDIA"] = (
+            linha["ACUMULADO"] / len(meses_sel)
+            if meses_sel
+            else 0.0
+        )
 
-        linhas_resumo.append(linha)
+        return linha
 
-    df_resumo = pd.DataFrame(
-        linhas_resumo
+    linha_operacional = montar_linha_resumo(
+        "operacional",
+        "Operacional"
     )
 
-    # ==========================================================
-    # 6. LINHA TOTAL DO RESUMO
-    # ==========================================================
+    linha_nao_operacional = montar_linha_resumo(
+        "nao_operacional",
+        "Não Operacional"
+    )
 
-    linha_total = {
-        "Descrição": "Total"
-    }
+    linha_diretoria_gastos = montar_linha_resumo(
+        "diretoria",
+        "    Diretoria Gastos"
+    )
+
+    linha_diretoria_investimentos = montar_linha_resumo(
+        "diretoria_investimentos",
+        "    Diretoria Investimentos"
+    )
+
+    # A linha Diretoria é um subtotal dos dois filhos.
+    # Não consulta novamente os movimentos para evitar qualquer
+    # possibilidade de divergência ou dupla contagem.
+    linha_diretoria = {"Descrição": "Diretoria"}
+
+    for mes in meses_sel:
+        linha_diretoria[mes] = (
+            linha_diretoria_gastos[mes]
+            + linha_diretoria_investimentos[mes]
+        )
+
+    linha_diretoria["ACUMULADO"] = (
+        linha_diretoria_gastos["ACUMULADO"]
+        + linha_diretoria_investimentos["ACUMULADO"]
+    )
+
+    linha_diretoria["MÉDIA"] = (
+        linha_diretoria["ACUMULADO"] / len(meses_sel)
+        if meses_sel
+        else 0.0
+    )
+
+    # O Total soma somente as três linhas principais.
+    # Os filhos de Diretoria NÃO são somados novamente.
+    linha_total = {"Descrição": "Total"}
 
     for mes in meses_sel:
         linha_total[mes] = (
-            df_resumo[mes].sum()
+            linha_operacional[mes]
+            + linha_nao_operacional[mes]
+            + linha_diretoria[mes]
         )
 
     linha_total["ACUMULADO"] = (
-        df_resumo["ACUMULADO"].sum()
+        linha_operacional["ACUMULADO"]
+        + linha_nao_operacional["ACUMULADO"]
+        + linha_diretoria["ACUMULADO"]
     )
 
-    if meses_sel:
-        linha_total["MÉDIA"] = (
-            linha_total["ACUMULADO"]
-            / len(meses_sel)
-        )
-    else:
-        linha_total["MÉDIA"] = 0.0
-
-    df_resumo = pd.concat(
-        [
-            df_resumo,
-            pd.DataFrame([linha_total])
-        ],
-        ignore_index=True
+    linha_total["MÉDIA"] = (
+        linha_total["ACUMULADO"] / len(meses_sel)
+        if meses_sel
+        else 0.0
     )
 
-    # Ordem visual igual ao modelo solicitado
+    df_resumo = pd.DataFrame([
+        linha_operacional,
+        linha_nao_operacional,
+        linha_diretoria,
+        linha_diretoria_gastos,
+        linha_diretoria_investimentos,
+        linha_total
+    ])
+
     cols_resumo = (
         ["Descrição"]
         + meses_sel
@@ -278,6 +303,15 @@ def render_aba_resultado_operacional(
                 (
                     "background-color: #334155; "
                     "color: white; "
+                    "font-weight: bold"
+                )
+            ] * len(row)
+
+        if row["Descrição"] == "Diretoria":
+            return [
+                (
+                    "background-color: #D1EAFF; "
+                    "color: black; "
                     "font-weight: bold"
                 )
             ] * len(row)
@@ -379,6 +413,18 @@ def render_aba_resultado_operacional(
                     color=cor_branca
                 )
 
+            elif descricao == "Diretoria":
+
+                fill = PatternFill(
+                    "solid",
+                    fgColor=cor_azul_claro
+                )
+
+                font = Font(
+                    bold=True,
+                    color="000000"
+                )
+
             else:
 
                 fill = PatternFill(
@@ -402,6 +448,9 @@ def render_aba_resultado_operacional(
 
                 cell.fill = fill
                 cell.font = font
+
+                if col == 1 and str(descricao).startswith("    "):
+                    cell.alignment = Alignment(indent=1)
 
                 if col > 1:
                     cell.number_format = (
@@ -823,6 +872,18 @@ def render_aba_resultado_operacional(
                     color=cor_branca
                 )
 
+            elif descricao == "Diretoria":
+
+                fill = PatternFill(
+                    "solid",
+                    fgColor=cor_azul_claro
+                )
+
+                font = Font(
+                    bold=True,
+                    color="000000"
+                )
+
             else:
 
                 fill = PatternFill(
@@ -846,6 +907,9 @@ def render_aba_resultado_operacional(
 
                 cell.fill = fill
                 cell.font = font
+
+                if col == 1 and str(descricao).startswith("    "):
+                    cell.alignment = Alignment(indent=1)
 
                 if col > 1:
                     cell.number_format = (
