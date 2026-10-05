@@ -57,6 +57,11 @@ def render_aba_resultado_operacional(
 
     df_base = carregar_aba_base().copy()
 
+    # Preserva a ordem original do plano de contas.
+    # Algumas rotinas de filtro podem alterar a ordem das linhas;
+    # esta coluna técnica permite restaurá-la antes da exibição/exportação.
+    df_base["_ordem_plano"] = range(len(df_base))
+
     meses_numeros = [
         MAPA_MESES[m]
         for m in meses_sel
@@ -656,6 +661,15 @@ def render_aba_resultado_operacional(
             niveis_sel
         )
     ].copy()
+
+    # Restaura rigorosamente a ordem original do plano de contas.
+    # Não ordenamos por Nivel, Conta, índice ou valores.
+    if "_ordem_plano" in df_visual.columns:
+        df_visual = (
+            df_visual
+            .sort_values("_ordem_plano", kind="stable")
+            .copy()
+        )
 
     cols_export = [
         "Nivel",
