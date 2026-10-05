@@ -307,7 +307,11 @@ def render_aba_resultado_operacional(
                 )
             ] * len(row)
 
-        if row["Descrição"] == "Diretoria":
+        if row["Descrição"] in [
+            "Operacional",
+            "Não Operacional",
+            "Diretoria"
+        ]:
             return [
                 (
                     "background-color: #D1EAFF; "
@@ -413,7 +417,11 @@ def render_aba_resultado_operacional(
                     color=cor_branca
                 )
 
-            elif descricao == "Diretoria":
+            elif descricao in [
+                "Operacional",
+                "Não Operacional",
+                "Diretoria"
+            ]:
 
                 fill = PatternFill(
                     "solid",
@@ -872,7 +880,11 @@ def render_aba_resultado_operacional(
                     color=cor_branca
                 )
 
-            elif descricao == "Diretoria":
+            elif descricao in [
+                "Operacional",
+                "Não Operacional",
+                "Diretoria"
+            ]:
 
                 fill = PatternFill(
                     "solid",
