@@ -463,12 +463,12 @@ def render_aba_resultado_operacional(
                 cell.font = font
 
                 if col == 1 and str(descricao).startswith("    "):
-                    cell.alignment = Alignment(indent=1)
+                    cell.value = str(descricao).strip()
+                    cell.alignment = Alignment(indent=1, vertical="center")
 
                 if col > 1:
                     cell.number_format = (
-                        'R$ #,##0.00;'
-                        '[Red]-R$ #,##0.00'
+                        '#,##0.00;(#,##0.00);0.00'
                     )
 
         # Congela primeira coluna e cabeçalho
@@ -935,12 +935,12 @@ def render_aba_resultado_operacional(
                 cell.font = font
 
                 if col == 1 and str(descricao).startswith("    "):
-                    cell.alignment = Alignment(indent=1)
+                    cell.value = str(descricao).strip()
+                    cell.alignment = Alignment(indent=1, vertical="center")
 
                 if col > 1:
                     cell.number_format = (
-                        'R$ #,##0.00;'
-                        '[Red]-R$ #,##0.00'
+                        '#,##0.00;(#,##0.00);0.00'
                     )
 
         # ------------------------------------------------------
@@ -1056,8 +1056,7 @@ def render_aba_resultado_operacional(
 
                 if col >= 5:
                     cell.number_format = (
-                        'R$ #,##0.00;'
-                        '[Red]-R$ #,##0.00'
+                        '#,##0.00;(#,##0.00);0.00'
                     )
 
         # ------------------------------------------------------
