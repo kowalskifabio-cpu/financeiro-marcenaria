@@ -512,174 +512,178 @@ def render_aba_resultado_operacional(
     # DETALHADO.
     # ==========================================================
 
-    df_mov_detalhado = df_mov.copy()
+    # Cada aba é calculada a partir da mesma base e das mesmas regras.
+    # A seleção do rádio altera somente a tabela exibida na tela.
+    def montar_detalhado(visao):
+        movimentos_visao = df_mov.copy()
+        if visao != "todos":
+            movimentos_visao = movimentos_visao[
+                movimentos_visao["Classificacao"] == visao
+            ].copy()
+        base_trabalho = df_base.copy()
+        for mes in meses_sel:
+            base_trabalho[mes] = 0.0
 
-    if filtro_classificacao != "todos":
-        df_mov_detalhado = (
-            df_mov_detalhado[
-                df_mov_detalhado["Classificacao"]
-                == filtro_classificacao
-            ]
-            .copy()
-        )
+        for mes in meses_sel:
 
-    # ==========================================================
-    # 9. MONTA RELATÓRIO DETALHADO
-    # ==========================================================
-
-    for mes in meses_sel:
-        df_base[mes] = 0.0
-
-    for mes in meses_sel:
-
-        mes_num = int(
-            MAPA_MESES[mes]
-        )
-
-        df_m = df_mov_detalhado[
-            df_mov_detalhado["Mes"].astype(int)
-            == mes_num
-        ].copy()
-
-        if df_m.empty:
-            continue
-
-        mapa_valores = (
-            df_m
-            .groupby("Conta_ID")["Valor_Final"]
-            .sum()
-            .to_dict()
-        )
-
-        df_base[mes] = (
-            df_base["Conta"]
-            .map(mapa_valores)
-            .fillna(0.0)
-        )
-
-        # ------------------------------------------------------
-        # CONSOLIDAÇÃO HIERÁRQUICA
-        # ------------------------------------------------------
-
-        for n in sorted(
-            df_base["Nivel"]
-            .dropna()
-            .unique(),
-            reverse=True
-        ):
-
-            if n <= 1:
-                continue
-
-            nivel_pai = n - 1
-
-            for idx, row in df_base[
-                df_base["Nivel"] == nivel_pai
-            ].iterrows():
-
-                pref = (
-                    str(row["Conta"]).strip()
-                    + "."
-                )
-
-                filhos = df_base[
-                    (df_base["Nivel"] == n)
-                    &
-                    (
-                        df_base["Conta"]
-                        .astype(str)
-                        .str.startswith(pref)
-                    )
-                ]
-
-                total_filhos = (
-                    filhos[mes].sum()
-                )
-
-                if total_filhos != 0:
-                    valor_direto_pai = df_base.at[
-                        idx,
-                        mes
-                    ]
-
-                    df_base.at[
-                        idx,
-                        mes
-                    ] = (
-                        valor_direto_pai
-                        + total_filhos
-                    )
-
-        # ------------------------------------------------------
-        # RESULTADO NÍVEL 1
-        # ------------------------------------------------------
-
-        for idx, _ in df_base[
-            df_base["Nivel"] == 1
-        ].iterrows():
-
-            df_base.at[
-                idx,
-                mes
-            ] = (
-                df_base[
-                    df_base["Nivel"] == 2
-                ][mes]
-                .sum()
+            mes_num = int(
+                MAPA_MESES[mes]
             )
 
-    # ==========================================================
-    # 10. MÉDIA E ACUMULADO
-    # ==========================================================
+            df_m = movimentos_visao[
+                movimentos_visao["Mes"].astype(int)
+                == mes_num
+            ].copy()
 
-    df_base["ACUMULADO"] = (
-        df_base[meses_sel]
-        .sum(axis=1)
-    )
+            if df_m.empty:
+                continue
 
-    df_base["MÉDIA"] = (
-        df_base[meses_sel]
-        .mean(axis=1)
-    )
+            mapa_valores = (
+                df_m
+                .groupby("Conta_ID")["Valor_Final"]
+                .sum()
+                .to_dict()
+            )
 
-    # ==========================================================
-    # 11. OCULTAR CONTAS ZERADAS
-    # ==========================================================
+            base_trabalho[mes] = (
+                base_trabalho["Conta"]
+                .map(mapa_valores)
+                .fillna(0.0)
+            )
 
-    if ocultar_vazios:
-        df_base = filtrar_linhas_zeradas(
-            df_base,
-            meses_sel + ["ACUMULADO"]
+            # ------------------------------------------------------
+            # CONSOLIDAÇÃO HIERÁRQUICA
+            # ------------------------------------------------------
+
+            for n in sorted(
+                base_trabalho["Nivel"]
+                .dropna()
+                .unique(),
+                reverse=True
+            ):
+
+                if n <= 1:
+                    continue
+
+                nivel_pai = n - 1
+
+                for idx, row in base_trabalho[
+                    base_trabalho["Nivel"] == nivel_pai
+                ].iterrows():
+
+                    pref = (
+                        str(row["Conta"]).strip()
+                        + "."
+                    )
+
+                    filhos = base_trabalho[
+                        (base_trabalho["Nivel"] == n)
+                        &
+                        (
+                            base_trabalho["Conta"]
+                            .astype(str)
+                            .str.startswith(pref)
+                        )
+                    ]
+
+                    total_filhos = (
+                        filhos[mes].sum()
+                    )
+
+                    if total_filhos != 0:
+                        valor_direto_pai = base_trabalho.at[
+                            idx,
+                            mes
+                        ]
+
+                        base_trabalho.at[
+                            idx,
+                            mes
+                        ] = (
+                            valor_direto_pai
+                            + total_filhos
+                        )
+
+            # ------------------------------------------------------
+            # RESULTADO NÍVEL 1
+            # ------------------------------------------------------
+
+            for idx, _ in base_trabalho[
+                base_trabalho["Nivel"] == 1
+            ].iterrows():
+
+                base_trabalho.at[
+                    idx,
+                    mes
+                ] = (
+                    base_trabalho[
+                        base_trabalho["Nivel"] == 2
+                    ][mes]
+                    .sum()
+                )
+
+        # ==========================================================
+        # 10. MÉDIA E ACUMULADO
+        # ==========================================================
+
+        base_trabalho["ACUMULADO"] = (
+            base_trabalho[meses_sel]
+            .sum(axis=1)
         )
 
-    # ==========================================================
-    # 12. NÍVEIS SELECIONADOS
-    # ==========================================================
-
-    df_visual = df_base[
-        df_base["Nivel"].isin(
-            niveis_sel
+        base_trabalho["MÉDIA"] = (
+            base_trabalho[meses_sel]
+            .mean(axis=1)
         )
-    ].copy()
 
-    # Restaura rigorosamente a ordem original do plano de contas.
-    # Não ordenamos por Nivel, Conta, índice ou valores.
-    if "_ordem_plano" in df_visual.columns:
-        df_visual = (
-            df_visual
-            .sort_values("_ordem_plano", kind="stable")
-            .copy()
-        )
+        # ==========================================================
+        # 11. OCULTAR CONTAS ZERADAS
+        # ==========================================================
+
+        if ocultar_vazios:
+            base_trabalho = filtrar_linhas_zeradas(
+                base_trabalho,
+                meses_sel + ["ACUMULADO"]
+            )
+
+        # ==========================================================
+        # 12. NÍVEIS SELECIONADOS
+        # ==========================================================
+
+        df_visual = base_trabalho[
+            base_trabalho["Nivel"].isin(
+                niveis_sel
+            )
+        ].copy()
+
+        # Restaura rigorosamente a ordem original do plano de contas.
+        # Não ordenamos por Nivel, Conta, índice ou valores.
+        if "_ordem_plano" in df_visual.columns:
+            df_visual = (
+                df_visual
+                .sort_values("_ordem_plano", kind="stable")
+                .copy()
+            )
+
+        return df_visual.copy()
+
+    # Construir as cinco visões sem alterar a seleção atual.
+    visoes_exportacao = [
+        ("todos", "Todos"),
+        ("operacional", "Operacional"),
+        ("nao_operacional", "Nao Operacional"),
+        ("diretoria", "Diretoria"),
+        ("diretoria_investimentos", "Diretoria Investimentos"),
+    ]
+    detalhados_por_visao = {
+        codigo: montar_detalhado(codigo)
+        for codigo, _ in visoes_exportacao
+    }
+    df_visual = detalhados_por_visao[filtro_classificacao]
 
     cols_export = [
-        "Nivel",
-        "Conta",
-        "Descrição",
-        "Classificacao"
-    ] + meses_sel + [
-        "MÉDIA",
-        "ACUMULADO"
-    ]
+        "Nivel", "Conta", "Descrição", "Classificacao"
+    ] + meses_sel + ["MÉDIA", "ACUMULADO"]
 
     # ==========================================================
     # 13. ESTILO DO RELATÓRIO DETALHADO
@@ -807,25 +811,11 @@ def render_aba_resultado_operacional(
             "Resumo por Classificacao"
         ]
 
-        # ------------------------------------------------------
-        # ABA 2 - DETALHADO
-        # ------------------------------------------------------
-
-        df_export = (
-            df_visual[
-                cols_export
-            ].copy()
-        )
-
-        df_export.to_excel(
-            writer,
-            index=False,
-            sheet_name="Resultado Detalhado"
-        )
-
-        ws_detalhado = writer.sheets[
-            "Resultado Detalhado"
-        ]
+        # Abas detalhadas: todas as classificações, na ordem solicitada.
+        for codigo, nome_aba in visoes_exportacao:
+            detalhados_por_visao[codigo][cols_export].to_excel(
+                writer, index=False, sheet_name=nome_aba
+            )
 
         # ======================================================
         # 17. ESTILOS DO EXCEL
@@ -959,149 +949,152 @@ def render_aba_resultado_operacional(
                 get_column_letter(col)
             ].width = 16
 
-        # ------------------------------------------------------
-        # FORMATA DETALHADO
-        # ------------------------------------------------------
+        for _, nome_aba in visoes_exportacao:
+            ws_detalhado = writer.sheets[nome_aba]
+            # ------------------------------------------------------
+            # FORMATA DETALHADO
+            # ------------------------------------------------------
 
-        ws_detalhado.freeze_panes = "A2"
-        ws_detalhado.auto_filter.ref = (
-            ws_detalhado.dimensions
-        )
-
-        for cell in ws_detalhado[1]:
-
-            cell.fill = PatternFill(
-                "solid",
-                fgColor=cor_cabecalho
+            ws_detalhado.freeze_panes = "A2"
+            ws_detalhado.auto_filter.ref = (
+                ws_detalhado.dimensions
             )
 
-            cell.font = Font(
-                bold=True
-            )
+            for cell in ws_detalhado[1]:
 
-            cell.border = Border(
-                bottom=borda_fina
-            )
-
-        for row in range(
-            2,
-            ws_detalhado.max_row + 1
-        ):
-
-            nivel = (
-                ws_detalhado.cell(
-                    row=row,
-                    column=1
-                ).value
-            )
-
-            if nivel == 1:
-
-                fill = PatternFill(
+                cell.fill = PatternFill(
                     "solid",
-                    fgColor=cor_escura
+                    fgColor=cor_cabecalho
                 )
 
-                font = Font(
-                    bold=True,
-                    color=cor_branca
+                cell.font = Font(
+                    bold=True
                 )
 
-            elif nivel == 2:
-
-                fill = PatternFill(
-                    "solid",
-                    fgColor=cor_nivel_2
+                cell.border = Border(
+                    bottom=borda_fina
                 )
 
-                font = Font(
-                    bold=True,
-                    color="000000"
-                )
-
-            elif nivel == 3:
-
-                fill = PatternFill(
-                    "solid",
-                    fgColor=cor_azul_claro
-                )
-
-                font = Font(
-                    bold=True,
-                    color="000000"
-                )
-
-            else:
-
-                fill = PatternFill(
-                    fill_type=None
-                )
-
-                font = Font(
-                    color="000000"
-                )
-
-            for col in range(
-                1,
-                ws_detalhado.max_column + 1
+            for row in range(
+                2,
+                ws_detalhado.max_row + 1
             ):
 
-                cell = ws_detalhado.cell(
-                    row=row,
-                    column=col
+                nivel = (
+                    ws_detalhado.cell(
+                        row=row,
+                        column=1
+                    ).value
                 )
 
-                cell.fill = fill
-                cell.font = font
+                if nivel == 1:
 
-                if col >= 5:
-                    cell.number_format = (
-                        '#,##0.00;(#,##0.00);0.00'
+                    fill = PatternFill(
+                        "solid",
+                        fgColor=cor_escura
                     )
 
-        # ------------------------------------------------------
-        # LARGURA AUTOMÁTICA DO DETALHADO
-        # ------------------------------------------------------
+                    font = Font(
+                        bold=True,
+                        color=cor_branca
+                    )
 
-        for coluna in ws_detalhado.columns:
+                elif nivel == 2:
 
-            tamanho = 0
-            letra = (
-                coluna[0]
-                .column_letter
-            )
+                    fill = PatternFill(
+                        "solid",
+                        fgColor=cor_nivel_2
+                    )
 
-            for celula in coluna:
+                    font = Font(
+                        bold=True,
+                        color="000000"
+                    )
 
-                try:
-                    tamanho = max(
-                        tamanho,
-                        len(
-                            str(
-                                celula.value
-                                if celula.value
-                                is not None
-                                else ""
+                elif nivel == 3:
+
+                    fill = PatternFill(
+                        "solid",
+                        fgColor=cor_azul_claro
+                    )
+
+                    font = Font(
+                        bold=True,
+                        color="000000"
+                    )
+
+                else:
+
+                    fill = PatternFill(
+                        fill_type=None
+                    )
+
+                    font = Font(
+                        color="000000"
+                    )
+
+                for col in range(
+                    1,
+                    ws_detalhado.max_column + 1
+                ):
+
+                    cell = ws_detalhado.cell(
+                        row=row,
+                        column=col
+                    )
+
+                    cell.fill = fill
+                    cell.font = font
+
+                    if col >= 5:
+                        cell.number_format = (
+                            '#,##0.00;(#,##0.00);0.00'
+                        )
+
+            # ------------------------------------------------------
+            # LARGURA AUTOMÁTICA DO DETALHADO
+            # ------------------------------------------------------
+
+            for coluna in ws_detalhado.columns:
+
+                tamanho = 0
+                letra = (
+                    coluna[0]
+                    .column_letter
+                )
+
+                for celula in coluna:
+
+                    try:
+                        tamanho = max(
+                            tamanho,
+                            len(
+                                str(
+                                    celula.value
+                                    if celula.value
+                                    is not None
+                                    else ""
+                                )
                             )
                         )
-                    )
 
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
 
-            ws_detalhado.column_dimensions[
-                letra
-            ].width = min(
-                tamanho + 3,
-                45
-            )
+                ws_detalhado.column_dimensions[
+                    letra
+                ].width = min(
+                    tamanho + 3,
+                    45
+                )
+
 
     # ==========================================================
     # 18. DOWNLOAD
     # ==========================================================
 
     st.download_button(
-        "📥 Exportar Resultado Completo (Excel)",
+        "📥 Exportar Todas as Visões (Excel)",
         data=buffer.getvalue(),
         file_name=nome_arquivo,
         mime=(
