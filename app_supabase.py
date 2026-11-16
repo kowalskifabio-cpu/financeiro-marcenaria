@@ -16,6 +16,7 @@ from aba_resultado_operacional import render_aba_resultado_operacional
 from aba_orcamento_obz import render_aba_orcamento_obz
 from aba_orcado_realizado import render_aba_orcado_realizado
 from aba_painel_executivo import render_aba_painel_executivo
+from aba_reclassificacao_fretes import combinar_movimentos, render_aba_reclassificacao_fretes
 
 # =========================
 # CONFIGURAÇÃO GERAL
@@ -456,7 +457,7 @@ def carregar_movimentos_periodo(ano, meses_numeros):
                 inicio += passo
 
         df = pd.DataFrame(dados)
-        return normalizar_movimentos(df)
+        return combinar_movimentos(normalizar_movimentos(df), ano, meses_numeros)
 
     except Exception as e:
         mostrar_erro("Erro ao ler movimentos_financeiros no Supabase", e)
@@ -479,7 +480,7 @@ def carregar_todos_movimentos():
     try:
         dados = supabase_fetch_all("movimentos_financeiros")
         df = pd.DataFrame(dados)
-        return normalizar_movimentos(df)
+        return combinar_movimentos(normalizar_movimentos(df))
     except Exception as e:
         mostrar_erro("Erro ao ler todos os movimentos", e)
         return pd.DataFrame()
@@ -697,14 +698,15 @@ def inserir_movimentos_com_sobrescrita(df_mov_supabase, ano, mes_num):
 # =========================
 st.title("📊 Gestor Financeiro - Status Marcenaria")
 
-aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8, aba9, aba10, aba11, aba12, aba13, aba14 = st.tabs([
+aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8, aba9, aba10, aba11, aba12, aba13, aba14, aba15 = st.tabs([
     "📥 Carga", "📈 Relatório", "🎯 Indicadores", "🏢 Obras", "⚖️ Comparativo",
     "⚠️ Alertas", "📉 Curva ABC", "🤖 Analista IA", "🧾 Composição da Obra",
     "⚙️ Configurações",
     "📊 Resultado Operacional",
     "💰 Orçamento",
     "📊 Orçado x Realizado",
-    "🎯 Painel Executivo"
+    "🎯 Painel Executivo",
+    "🚚 Reclassificação de Fretes"
 ])
 
 # Sidebar baseada no Supabase
@@ -1419,3 +1421,10 @@ with aba14:
         carregar_logica_rateio=carregar_logica_rateio
     )
 
+
+with aba15:
+    render_aba_reclassificacao_fretes(
+        ano_sel=ano_sel,
+        mapa_meses=MAPA_MESES,
+        supabase_client=supabase_client
+    )
