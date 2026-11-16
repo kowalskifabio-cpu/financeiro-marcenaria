@@ -111,14 +111,9 @@ def preparar_planilha(arquivo, ano, mes):
 
 
 def conferir_itens(itens, ano, mes, supabase_client):
-    """Prévia: checagem de receita original por CC e de cadastro de CC."""
-    receitas = _paginar(supabase_client.table('movimentos_financeiros').select('centro_custo,valor').eq('ano', ano).eq('mes', str(mes)).eq('conta_id', ORIGEM))
+    """Prévia: verifica apenas o cadastro dos Centros de Custo, sem consultar receita."""
     rateios = _paginar(supabase_client.table('rateio_config').select('centro_custo'))
     cadastrados = {str(x['centro_custo']).strip() for x in rateios}
-    disponivel = {}
-    for x in receitas:
-        cc = str(x['centro_custo']).strip()
-        disponivel[cc] = disponivel.get(cc, Decimal('0')) + Decimal(str(x['valor']))
     solicitado = {}
     for x in itens:
         cc = x['centro_custo']
@@ -126,11 +121,9 @@ def conferir_itens(itens, ano, mes, supabase_client):
     linhas = []
     valido = True
     for cc, v in sorted(solicitado.items()):
-        saldo = disponivel.get(cc, Decimal('0'))
         cadastrado = cc in cadastrados
-        suficiente = v <= saldo
-        valido = valido and cadastrado and suficiente
-        linhas.append({'Centro de Custo': cc, 'Frete solicitado (R$)': float(v), 'Receita disponível (R$)': float(saldo), 'Cadastrado': cadastrado, 'Receita suficiente': suficiente})
+        valido = valido and cadastrado
+        linhas.append({'Centro de Custo': cc, 'Frete solicitado (R$)': float(v), 'Cadastrado': cadastrado})
     return pd.DataFrame(linhas), valido
 
 
@@ -157,7 +150,7 @@ def render_aba_reclassificacao_fretes(ano_sel, mapa_meses, supabase_client):
         st.write(f'{len(itens)} lançamentos em {len(previa)} Centros de Custo.')
         st.dataframe(previa, use_container_width=True)
         if not valido:
-            st.error('Importação bloqueada: existem Centros de Custo não cadastrados ou receita insuficiente. Corrija a planilha ou os dados de origem.')
+            st.error('Importação bloqueada: existem Centros de Custo não cadastrados. Corrija a planilha ou cadastre os Centros de Custo.')
             return
         st.warning('A confirmação substituirá o lote ativo deste mês, se houver. O histórico anterior será preservado.')
         confirmar = st.checkbox('Conferi o mês, os Centros de Custo e os valores.', key='reclass_confirmar')
