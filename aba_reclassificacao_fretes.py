@@ -9,6 +9,7 @@ from supabase import create_client
 ORIGEM = '01.01.002'
 DESTINO = '01.01.019'
 COLUNAS = ['Data do lançamento', 'CTR', 'Centro de Custo', 'Valor do Frete (R$)']
+CC_FOLHA_LOGISTICA = '000/0003-FOLHA LOGISTICA'
 
 
 def cliente_admin():
@@ -202,6 +203,7 @@ def _ler_movimentos_frete(ano, meses, supabase_client):
 
 
 def _montar_relatorio(ano, meses, centros, supabase_client):
+    """Seleciona uma única vez cada movimento: conta de frete OU CC da logística."""
     plano = pd.DataFrame(_paginar(
         supabase_client.table('plano_contas').select(
             'conta_id,descricao,nivel,classificacao,classificacao_gerencial')))
@@ -211,6 +213,8 @@ def _montar_relatorio(ano, meses, centros, supabase_client):
     if not obrigatorias.issubset(plano.columns):
         raise ValueError('Plano de Contas sem os campos necessários à classificação gerencial.')
     plano['conta_id'] = plano['conta_id'].astype(str).str.strip()
+    if plano['conta_id'].duplicated().any():
+        raise ValueError('Existem contas duplicadas no Plano de Contas.')
     plano['classificacao_gerencial'] = plano['classificacao_gerencial'].fillna('').astype(str).str.lower().str.strip()
     plano['classificacao'] = plano['classificacao'].fillna('').astype(str).str.lower().str.strip()
     plano['nivel'] = pd.to_numeric(plano['nivel'], errors='coerce')
@@ -220,21 +224,35 @@ def _montar_relatorio(ano, meses, centros, supabase_client):
         raise ValueError('Nenhuma conta analítica (nível 4) classificada como operacional_frete.')
     fora_operacional = contas[contas['classificacao'] != 'operacional']
     if not fora_operacional.empty:
-        raise ValueError('Há contas operacional_frete cuja classificação principal não é operacional. Corrija o Plano de Contas antes de gerar o relatório.')
+        raise ValueError('Há contas operacional_frete cuja classificação principal não é operacional.')
     df = _ler_movimentos_frete(ano, meses, supabase_client)
     if df.empty:
         return pd.DataFrame(), contas, pd.DataFrame()
-    df = df[df['Conta_ID'].isin(contas['conta_id'])].copy()
+    df['Conta_ID'] = df['Conta_ID'].astype(str).str.strip()
+    df['Centro de Custo'] = df['Centro de Custo'].fillna('').astype(str).str.strip()
+    df['Valor_Final'] = pd.to_numeric(df['Valor_Final'], errors='coerce').fillna(0.0)
+    # OR booleano sobre o mesmo dataframe: não concatena nem duplica registros.
+    por_conta = df['Conta_ID'].isin(contas['conta_id'])
+    por_centro = df['Centro de Custo'].eq(CC_FOLHA_LOGISTICA)
+    df = df.loc[por_conta | por_centro].copy()
+    df['Origem Gerencial'] = 'Frota / fretes'
+    df.loc[~por_conta.loc[df.index] & por_centro.loc[df.index], 'Origem Gerencial'] = 'Folha Logística'
     if centros:
-        df = df[df['Centro de Custo'].isin(centros)]
+        df = df[df['Centro de Custo'].isin(centros)].copy()
     if df.empty:
         return df, contas, pd.DataFrame()
-    df = df.merge(contas[['conta_id', 'descricao']], left_on='Conta_ID',
-                  right_on='conta_id', how='left', validate='many_to_one')
-    df['Tipo'] = df['Conta_ID'].apply(lambda c: 'Receita' if c.startswith('01.') else 'Despesa' if c.startswith('02.') else 'Outro')
+    df = df.merge(plano[['conta_id', 'descricao', 'classificacao', 'nivel']],
+                  left_on='Conta_ID', right_on='conta_id', how='left', validate='many_to_one')
+    sem_cadastro = df['descricao'].isna()
+    if sem_cadastro.any():
+        raise ValueError('Há lançamentos sem conta cadastrada no Plano de Contas: ' +
+                         ', '.join(sorted(df.loc[sem_cadastro, 'Conta_ID'].unique())))
+    if (df['classificacao'] != 'operacional').any():
+        raise ValueError('Há lançamentos selecionados cuja classificação principal não é operacional.')
+    df['Tipo'] = df['Conta_ID'].apply(
+        lambda c: 'Receita' if c.startswith('01.') else 'Despesa' if c.startswith('02.') else 'Outro')
     if (df['Tipo'] == 'Outro').any():
-        raise ValueError('Há contas operacional_frete fora dos grupos 01 (receita) e 02 (despesa).')
-    # Valores das despesas são negativos no BI. Resultado = receita + despesa.
+        raise ValueError('Há contas selecionadas fora dos grupos 01 (receita) e 02 (despesa).')
     mensal = df.groupby(['Mes', 'Tipo'], as_index=False)['Valor_Final'].sum()
     mensal = mensal.pivot(index='Mes', columns='Tipo', values='Valor_Final').fillna(0.0)
     for col in ['Receita', 'Despesa']:
@@ -249,13 +267,12 @@ def _montar_relatorio(ano, meses, centros, supabase_client):
 
 
 def _montar_dre_fretes(df, meses, mapa_meses):
-    """DRE gerencial: contas analíticas sem somar linhas de grupo novamente."""
+    """DRE por origem gerencial, sem misturar salários com o grupo Frota."""
     nomes = {v: k for k, v in mapa_meses.items()}
     colunas_meses = [nomes[m] for m in meses]
-    base = (df.groupby(['Conta_ID', 'descricao', 'Mes'], as_index=False)['Valor_Final']
-            .sum())
-    pivot = base.pivot_table(index=['Conta_ID', 'descricao'], columns='Mes',
-                             values='Valor_Final', aggfunc='sum', fill_value=0.0)
+    base = df.groupby(['Origem Gerencial', 'Conta_ID', 'descricao', 'Mes'], as_index=False)['Valor_Final'].sum()
+    pivot = base.pivot_table(index=['Origem Gerencial', 'Conta_ID', 'descricao'],
+                             columns='Mes', values='Valor_Final', aggfunc='sum', fill_value=0.0)
     pivot = pivot.reindex(columns=meses, fill_value=0.0)
     pivot.columns = colunas_meses
     linhas = []
@@ -266,27 +283,29 @@ def _montar_dre_fretes(df, meses, mapa_meses):
         registro['ACUMULADO'] = sum(registro[col] for col in colunas_meses)
         linhas.append(registro)
 
-    receitas = pivot[pivot.index.get_level_values(0).str.startswith('01.')]
-    despesas = pivot[pivot.index.get_level_values(0).str.startswith('02.')]
+    receitas = pivot[pivot.index.get_level_values('Conta_ID').str.startswith('01.')]
+    despesas_frota = pivot[(pivot.index.get_level_values('Origem Gerencial') == 'Frota / fretes') &
+                          (pivot.index.get_level_values('Conta_ID').str.startswith('02.'))]
+    despesas_folha = pivot[(pivot.index.get_level_values('Origem Gerencial') == 'Folha Logística') &
+                          (pivot.index.get_level_values('Conta_ID').str.startswith('02.'))]
     total_receita = receitas.sum(axis=0)
-    total_despesa = despesas.sum(axis=0)
+    total_frota = despesas_frota.sum(axis=0)
+    total_folha = despesas_folha.sum(axis=0)
     adicionar('total', 'R', 'RECEITA DE FRETES', total_receita)
-    for (conta, descricao), valores in receitas.sort_index().iterrows():
+    for (_, conta, descricao), valores in receitas.sort_index().iterrows():
         adicionar('conta', conta, descricao, valores)
-    adicionar('total', 'D', 'DESPESAS DA FROTA', total_despesa)
-    # Grupos por prefixo contábil, mantendo a hierarquia da conta.
-    for prefixo in sorted({'.'.join(conta.split('.')[:2]) for conta, _ in despesas.index}):
-        grupo = despesas[despesas.index.get_level_values(0).str.startswith(prefixo + '.')]
-        adicionar('grupo', prefixo, 'FROTA' if prefixo == '02.07' else f'GRUPO {prefixo}', grupo.sum(axis=0))
-        for (conta, descricao), valores in grupo.sort_index().iterrows():
-            adicionar('conta', conta, descricao, valores)
-    resultado = total_receita.add(total_despesa, fill_value=0.0)
+    adicionar('total', 'D', 'DESPESAS DA FROTA', total_frota)
+    for (_, conta, descricao), valores in despesas_frota.sort_index().iterrows():
+        adicionar('conta', conta, descricao, valores)
+    adicionar('total', 'MO', 'MÃO DE OBRA / DESPESAS — FOLHA LOGÍSTICA', total_folha)
+    for (_, conta, descricao), valores in despesas_folha.sort_index().iterrows():
+        adicionar('conta', conta, descricao, valores)
+    resultado = total_receita.add(total_frota, fill_value=0.0).add(total_folha, fill_value=0.0)
     adicionar('resultado', 'RF', 'RESULTADO GERENCIAL DE FRETES', resultado)
     margens = {col: (float(resultado.get(col, 0)) / float(total_receita.get(col, 0)) * 100)
                if float(total_receita.get(col, 0)) > 0 else 0.0 for col in colunas_meses}
     adicionar('margem', '%', 'MARGEM SOBRE RECEITA (%)', margens)
     dre = pd.DataFrame(linhas)
-    # Acumulado de percentuais não deve ser somado.
     receita_acum = float(total_receita.sum())
     dre.loc[dre['Tipo'] == 'margem', 'ACUMULADO'] = (
         float(resultado.sum()) / receita_acum * 100 if receita_acum > 0 else 0.0)
@@ -308,8 +327,8 @@ def _estilizar_dre_fretes(linha):
 
 def _aba_relatorio(ano_sel, mapa_meses, supabase_client):
     st.subheader('Resultado gerencial de fretes')
-    st.caption('Somente contas analíticas com classificacao_gerencial = operacional_frete. '
-               'O resultado operacional consolidado permanece inalterado.')
+    st.caption('Contas operacional_frete OU lançamentos do CC 000/0003-FOLHA LOGISTICA. '
+               'Cada movimento é considerado uma única vez; o operacional consolidado não muda.')
     nomes = list(mapa_meses.keys())
     c1, c2 = st.columns([1, 2])
     with c1:
@@ -347,7 +366,7 @@ def _aba_relatorio(ano_sel, mapa_meses, supabase_client):
         return
     _, df, mensal = resultado_salvo
     if df.empty:
-        st.info('Não há lançamentos nas contas classificadas como operacional_frete para os filtros selecionados.')
+        st.info('Não há lançamentos de fretes ou da Folha Logística para os filtros selecionados.')
         return
     receita = float(df.loc[df['Tipo'] == 'Receita', 'Valor_Final'].sum())
     despesas = float(df.loc[df['Tipo'] == 'Despesa', 'Valor_Final'].sum())
@@ -355,7 +374,7 @@ def _aba_relatorio(ano_sel, mapa_meses, supabase_client):
     margem = (resultado / receita * 100) if receita > 0 else 0.0
     c1, c2, c3, c4 = st.columns(4)
     c1.metric('Receitas de fretes', _moeda(receita))
-    c2.metric('Despesas da Frota', _moeda(abs(despesas)))
+    c2.metric('Despesas de fretes e logística', _moeda(abs(despesas)))
     c3.metric('Resultado de fretes', _moeda(resultado))
     c4.metric('Margem de fretes', f'{margem:.1f}%'.replace('.', ','))
     st.markdown('#### DRE gerencial de fretes')
@@ -384,7 +403,7 @@ def _aba_relatorio(ano_sel, mapa_meses, supabase_client):
     }), use_container_width=True, hide_index=True)
     st.bar_chart(mensal.set_index('Mês')[['Receita', 'Resultado']])
     st.markdown('#### Detalhamento por conta')
-    por_conta = (df.groupby(['Conta_ID', 'descricao', 'Tipo'], as_index=False)['Valor_Final']
+    por_conta = (df.groupby(['Origem Gerencial', 'Conta_ID', 'descricao', 'Tipo'], as_index=False)['Valor_Final']
                  .sum().sort_values('Conta_ID'))
     por_conta = por_conta.rename(columns={'Conta_ID': 'Conta', 'descricao': 'Descrição',
                                           'Valor_Final': 'Valor (R$)'})
@@ -401,8 +420,8 @@ def _aba_relatorio(ano_sel, mapa_meses, supabase_client):
     st.dataframe(por_centro[['Centro de Custo', 'Receita', 'Despesa', 'Resultado']].style.format({
         'Receita': _moeda, 'Despesa': _moeda, 'Resultado': _moeda
     }), use_container_width=True, hide_index=True)
-    st.caption('Despesas exibidas com sinal negativo; resultado = receitas + despesas. '
-               'Não há rateio adicional de despesas da Frota entre obras.')
+    st.caption('Despesas com sinal negativo; resultado = receitas + despesas. '
+               'O CC da Folha Logística é incluído integralmente, sem rateio adicional entre obras.')
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         dre.drop(columns=['Tipo']).to_excel(writer, sheet_name='DRE Fretes', index=False)
@@ -411,7 +430,7 @@ def _aba_relatorio(ano_sel, mapa_meses, supabase_client):
         por_conta.to_excel(writer, sheet_name='Por Conta', index=False)
         por_centro[['Centro de Custo', 'Receita', 'Despesa', 'Resultado']].to_excel(
             writer, sheet_name='Por Centro de Custo', index=False)
-        df[['Data', 'Ano', 'Mes', 'Centro de Custo', 'Conta_ID', 'descricao',
+        df[['Data', 'Ano', 'Mes', 'Centro de Custo', 'Origem Gerencial', 'Conta_ID', 'descricao',
             'Tipo', 'Valor_Final']].to_excel(writer, sheet_name='Lancamentos', index=False)
     st.download_button('Exportar relatório de fretes (Excel)', data=buffer.getvalue(),
                        file_name=f'Relatorio_Fretes_{int(ano)}.xlsx',
