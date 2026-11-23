@@ -248,6 +248,64 @@ def _montar_relatorio(ano, meses, centros, supabase_client):
     return df, contas, mensal.reset_index()
 
 
+def _montar_dre_fretes(df, meses, mapa_meses):
+    """DRE gerencial: contas analíticas sem somar linhas de grupo novamente."""
+    nomes = {v: k for k, v in mapa_meses.items()}
+    colunas_meses = [nomes[m] for m in meses]
+    base = (df.groupby(['Conta_ID', 'descricao', 'Mes'], as_index=False)['Valor_Final']
+            .sum())
+    pivot = base.pivot_table(index=['Conta_ID', 'descricao'], columns='Mes',
+                             values='Valor_Final', aggfunc='sum', fill_value=0.0)
+    pivot = pivot.reindex(columns=meses, fill_value=0.0)
+    pivot.columns = colunas_meses
+    linhas = []
+
+    def adicionar(tipo, conta, descricao, valores):
+        registro = {'Tipo': tipo, 'Conta': conta, 'Descrição': descricao}
+        registro.update({col: float(valores.get(col, 0.0)) for col in colunas_meses})
+        registro['ACUMULADO'] = sum(registro[col] for col in colunas_meses)
+        linhas.append(registro)
+
+    receitas = pivot[pivot.index.get_level_values(0).str.startswith('01.')]
+    despesas = pivot[pivot.index.get_level_values(0).str.startswith('02.')]
+    total_receita = receitas.sum(axis=0)
+    total_despesa = despesas.sum(axis=0)
+    adicionar('total', 'R', 'RECEITA DE FRETES', total_receita)
+    for (conta, descricao), valores in receitas.sort_index().iterrows():
+        adicionar('conta', conta, descricao, valores)
+    adicionar('total', 'D', 'DESPESAS DA FROTA', total_despesa)
+    # Grupos por prefixo contábil, mantendo a hierarquia da conta.
+    for prefixo in sorted({'.'.join(conta.split('.')[:2]) for conta, _ in despesas.index}):
+        grupo = despesas[despesas.index.get_level_values(0).str.startswith(prefixo + '.')]
+        adicionar('grupo', prefixo, 'FROTA' if prefixo == '02.07' else f'GRUPO {prefixo}', grupo.sum(axis=0))
+        for (conta, descricao), valores in grupo.sort_index().iterrows():
+            adicionar('conta', conta, descricao, valores)
+    resultado = total_receita.add(total_despesa, fill_value=0.0)
+    adicionar('resultado', 'RF', 'RESULTADO GERENCIAL DE FRETES', resultado)
+    margens = {col: (float(resultado.get(col, 0)) / float(total_receita.get(col, 0)) * 100)
+               if float(total_receita.get(col, 0)) > 0 else 0.0 for col in colunas_meses}
+    adicionar('margem', '%', 'MARGEM SOBRE RECEITA (%)', margens)
+    dre = pd.DataFrame(linhas)
+    # Acumulado de percentuais não deve ser somado.
+    receita_acum = float(total_receita.sum())
+    dre.loc[dre['Tipo'] == 'margem', 'ACUMULADO'] = (
+        float(resultado.sum()) / receita_acum * 100 if receita_acum > 0 else 0.0)
+    return dre, colunas_meses
+
+
+def _estilizar_dre_fretes(linha):
+    tipo = linha['Tipo']
+    if tipo == 'resultado':
+        return ['background-color: #334155; color: white; font-weight: bold'] * len(linha)
+    if tipo == 'total':
+        return ['background-color: #cbd5e1; color: black; font-weight: bold'] * len(linha)
+    if tipo == 'grupo':
+        return ['background-color: #d1eaff; color: black; font-weight: bold'] * len(linha)
+    if tipo == 'margem':
+        return ['background-color: #e2e8f0; color: black; font-weight: bold'] * len(linha)
+    return [''] * len(linha)
+
+
 def _aba_relatorio(ano_sel, mapa_meses, supabase_client):
     st.subheader('Resultado gerencial de fretes')
     st.caption('Somente contas analíticas com classificacao_gerencial = operacional_frete. '
@@ -300,6 +358,23 @@ def _aba_relatorio(ano_sel, mapa_meses, supabase_client):
     c2.metric('Despesas da Frota', _moeda(abs(despesas)))
     c3.metric('Resultado de fretes', _moeda(resultado))
     c4.metric('Margem de fretes', f'{margem:.1f}%'.replace('.', ','))
+    st.markdown('#### DRE gerencial de fretes')
+    dre, colunas_dre = _montar_dre_fretes(df, sorted(mensal['Mes'].astype(int).tolist()), mapa_meses)
+    dre_visivel = dre[['Tipo', 'Conta', 'Descrição'] + colunas_dre + ['ACUMULADO']].copy()
+    formatacoes = {col: _moeda for col in colunas_dre + ['ACUMULADO']}
+    for col in colunas_dre + ['ACUMULADO']:
+        formatacoes[col] = lambda v, col=col: _moeda(v)
+    # Percentuais usam formato próprio, sem somar percentuais mensais no acumulado.
+    def formatar_celula(valor, tipo):
+        return (f'{valor:.1f}%'.replace('.', ',') if tipo == 'margem' else _moeda(valor))
+    dre_formatada = dre_visivel.copy()
+    for col in colunas_dre + ['ACUMULADO']:
+        dre_formatada[col] = [formatar_celula(v, t) for v, t in zip(dre_visivel[col], dre_visivel['Tipo'])]
+    st.dataframe(dre_formatada.style.apply(_estilizar_dre_fretes, axis=1),
+                 column_order=['Conta', 'Descrição'] + colunas_dre + ['ACUMULADO'],
+                 hide_index=True, use_container_width=True, height=min(850, 95 + len(dre) * 35))
+    st.caption('DRE gerencial em regime de caixa. Valores das despesas negativos; '
+               'contas analíticas aparecem uma vez e as linhas de grupo são subtotais.')
     st.markdown('#### Evolução mensal')
     nomes_por_numero = {v: k for k, v in mapa_meses.items()}
     mensal['Mês'] = mensal['Mes'].map(nomes_por_numero)
@@ -330,6 +405,7 @@ def _aba_relatorio(ano_sel, mapa_meses, supabase_client):
                'Não há rateio adicional de despesas da Frota entre obras.')
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        dre.drop(columns=['Tipo']).to_excel(writer, sheet_name='DRE Fretes', index=False)
         mensal[['Mês', 'Receita', 'Despesa', 'Resultado', 'Margem (%)']].to_excel(
             writer, sheet_name='Resumo Mensal', index=False)
         por_conta.to_excel(writer, sheet_name='Por Conta', index=False)
