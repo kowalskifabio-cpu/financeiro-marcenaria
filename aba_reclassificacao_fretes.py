@@ -394,6 +394,40 @@ def _aba_relatorio(ano_sel, mapa_meses, supabase_client):
                  hide_index=True, use_container_width=True, height=min(850, 95 + len(dre) * 35))
     st.caption('DRE gerencial em regime de caixa. Valores das despesas negativos; '
                'contas analíticas aparecem uma vez e as linhas de grupo são subtotais.')
+    # Exportação independente: somente a DRE exibida acima, com números editáveis.
+    dre_excel = io.BytesIO()
+    with pd.ExcelWriter(dre_excel, engine='openpyxl') as writer:
+        dre.drop(columns=['Tipo']).to_excel(writer, sheet_name='DRE Fretes', index=False)
+        ws = writer.sheets['DRE Fretes']
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+        ws.freeze_panes = 'C2'
+        ws.sheet_view.showGridLines = False
+        ws.column_dimensions['A'].width = 16
+        ws.column_dimensions['B'].width = 46
+        for indice in range(3, ws.max_column + 1):
+            ws.column_dimensions[get_column_letter(indice)].width = 19
+        for celula in ws[1]:
+            celula.fill = PatternFill('solid', fgColor='334155')
+            celula.font = Font(bold=True, color='FFFFFF')
+            celula.alignment = Alignment(horizontal='center')
+        cores = {'total': 'CBD5E1', 'grupo': 'D1EAFF',
+                 'resultado': '334155', 'margem': 'E2E8F0'}
+        for indice_linha, tipo in enumerate(dre['Tipo'], start=2):
+            fundo = cores.get(tipo)
+            for celula in ws[indice_linha]:
+                if fundo:
+                    celula.fill = PatternFill('solid', fgColor=fundo)
+                    celula.font = Font(bold=True, color='FFFFFF' if tipo == 'resultado' else '000000')
+                if celula.column >= 3:
+                    celula.number_format = '0.0"%"' if tipo == 'margem' else '"R$" #,##0.00;[Red]("R$" #,##0.00)'
+    st.download_button(
+        'Exportar somente a DRE de fretes (Excel)',
+        data=dre_excel.getvalue(),
+        file_name=f'DRE_Fretes_{int(ano)}.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        key='frete_dre_excel',
+    )
     st.markdown('#### Evolução mensal')
     nomes_por_numero = {v: k for k, v in mapa_meses.items()}
     mensal['Mês'] = mensal['Mes'].map(nomes_por_numero)
